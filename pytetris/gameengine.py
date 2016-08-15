@@ -26,6 +26,8 @@ class GameEngine(object):
         self.current_block = None
         self.fast = False
         self.score = 0
+        self.hold_tick = 0
+        self.hold_dir = 0
 
     @property
     def width(self):
@@ -44,12 +46,17 @@ class GameEngine(object):
             self.draw()
 
     def check_events(self):
+        self.hold_tick += 1
         for e in pygame.event.get():
             if e.type == 2:#keydown
                 if e.key == 276:#Left
                     self.movex(-1)
+                    self.hold_dir = -1
+                    self.hold_tick = 0
                 elif e.key == 275:#right
                     self.movex(1)
+                    self.hold_dir = 1
+                    self.hold_tick = 0
                 elif e.key == 274:#down
                     self.rotate(1)
                 elif e.key == 273:#up
@@ -62,14 +69,28 @@ class GameEngine(object):
             elif e.type == 3:#keyup
                 if e.key == 32:#space
                     self.fast = False
+                elif e.key in (275, 276):
+                    self.hold_dir = 0
+        if self.check_hold_move():
+            self.movex(self.hold_dir)
 
+    def check_hold_move(self):
+        return self.hold_dir != 0 and self.hold_tick > 8 and self.hold_tick % 2 == 0
 
     def draw(self):
         self.screen.fill((0,0,0))
         self.static_block.draw(self.screen)
         if self.current_block:
             self.current_block.draw(self.screen)
+        self.draw_score(self.screen)
         pygame.display.flip()
+
+    def draw_score(self, surface):
+        font = pygame.font.Font(None, 36)
+        text = font.render(str(self.score), 1, (250, 250, 250))
+        textpos = text.get_rect()
+        textpos.centerx = surface.get_rect().centerx
+        surface.blit(text, (0,0))
 
     def update(self, dt):
         if self.current_block is None:
