@@ -25,6 +25,7 @@ class GameEngine(object):
         self.blockgen = blockgen
         self.current_block = None
         self.fast = False
+        self.pause = False
         self.score = 0
         self.hold_tick = 0
         self.hold_dir = 0
@@ -49,6 +50,10 @@ class GameEngine(object):
         self.hold_tick += 1
         for e in pygame.event.get():
             if e.type == 2:#keydown
+                if e.key == pygame.K_p:
+                    self.pause = not self.pause
+                if self.pause:
+                    continue
                 if e.key == 276:#Left
                     self.movex(-1)
                     self.hold_dir = -1
@@ -69,9 +74,9 @@ class GameEngine(object):
             elif e.type == 3:#keyup
                 if e.key == 32:#space
                     self.fast = False
-                elif e.key in (275, 276):
+                elif e.key in (275, 276) and not self.pause:
                     self.hold_dir = 0
-        if self.check_hold_move():
+        if self.check_hold_move() and not self.pause:
             self.movex(self.hold_dir)
 
     def check_hold_move(self):
@@ -87,12 +92,17 @@ class GameEngine(object):
 
     def draw_score(self, surface):
         font = pygame.font.Font(None, 36)
-        text = font.render(str(self.score), 1, (250, 250, 250))
+        stext = str(self.score)
+        if self.pause:
+            stext = "Paused"
+        text = font.render(stext, 1, (250, 250, 250))
         textpos = text.get_rect()
         textpos.centerx = surface.get_rect().centerx
         surface.blit(text, (0,0))
 
     def update(self, dt):
+        if self.pause:
+            return
         if self.current_block is None:
             self.create_block()
         self.lastmove += dt
