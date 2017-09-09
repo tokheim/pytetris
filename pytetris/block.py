@@ -1,5 +1,6 @@
 import random
 import pygame
+import numpy
 
 def blend(color, val):
     oldvals = [color.r, color.g, color.b]
@@ -7,63 +8,68 @@ def blend(color, val):
     return pygame.color.Color(*newvals)
 
 def rotate(mask):
-    w, h = mask.get_size()
-    m = pygame.mask.Mask((h, w))
+    h, w = mask.shape
+    m = numpy.zeros((h, w), numpy.dtype(bool))
     for x in range(w):
         for y in range(h):
-            v = mask.get_at((x, y))
-            m.set_at((w-y-1, x), v)
+            v = mask[y, x]
+            m[x, w-y-1] = v
     return m
 
 def shift(mask, dx, dy):
-    w, h = mask.get_size()
-    n = pygame.mask.Mask((w, h))
+    h, w = mask.shape
+    m = numpy.zeros((h, w), numpy.dtype(bool))
     for x in range(max(0, -dx), min(w, w-dx)):
         for y in range(max(0, -dy), min(h, h-dy)):
-            v = mask.get_at((x, y))
-            n.set_at((x+dx, y+dy), v)
-    return n
+            v = mask[y, x]
+            m[y+dy, x+dx] = v
+    return m
 
 def flip(mask):
-    w, h = mask.get_size()
-    n = pygame.mask.Mask((w, h))
+    h, w = mask.shape
+    m = numpy.zeros((h, w), numpy.dtype(bool))
     for x in range(0, w):
         for y in range(0, h):
-            v = mask.get_at((x, y))
-            n.set_at((w-x-1, y), v)
-    return n
+            v = mask[y, x]
+            m[y, w-x-1] = v
+    return m
 
 def equals(ma, mb):
-    w, h = ma.get_size()
-    if (w, h) != mb.get_size():
+    if ma.shape != mb.shape:
         return False
-    for x in range(w):
-        for y in range(h):
-            if ma.get_at((x,y)) != mb.get_at((x,y)):
-                return False
-    return True
+    return (ma == mb).min()
+
+def centroid(mask):
+    n, cx, cy = 0, 0, 0
+    for x in range(mask.shape[1]):
+        for y in range(mask.shape[0]):
+            if mask[y, x]:
+                n+=1.0
+                cx += x
+                cy += y
+    return cx/n, cy/n
 
 def flip_symmetric(mask):
     fmask = rotate(flip(rotate(mask)))
-    cx, cy = mask.centroid()
+    cx, cy = centroid(mask)
     fmask = shift_centroid(fmask, cx, cy)
     return equals(fmask, mask)
 
 def shift_centroid(mask, x, y):
-    ox, oy = mask.centroid()
+    ox, oy = centroid(mask)
     dx = int(round(ox-x))
     dy = int(round(oy-y))
     return shift(mask, -dx, -dy)
 
 def make_surf(mask, color, blocksize):
-    w, h = mask.get_size()
+    h, w = mask.shape
     surf = pygame.surface.Surface((w*blocksize, h*blocksize),
             pygame.SRCALPHA, depth=32)
     surf.fill(pygame.color.Color(0, 0, 0, 0))
     bcolor = blend(color, 0.4)
     for x in range(w):
         for y in range(h):
-            if mask.get_at((x,y)):
+            if mask[y, x]:
                 draw_block(surf, x, y, blocksize, color, bcolor)
     return surf
 
@@ -74,7 +80,7 @@ def draw_block(surf, x, y, blocksize, color, bcolor):
     pygame.draw.rect(surf, color, r)
 
 def emptyblock(w, h, blocksize):
-    mask = pygame.mask.Mask((w, h))
+    mask = numpy.zeros((h, w), numpy.dtype(bool))
     surf = pygame.surface.Surface((w*blocksize, h*blocksize),
             pygame.SRCALPHA, depth=32)
     return StaticBlockGroup(mask, surf, blocksize)
@@ -87,35 +93,30 @@ class StaticBlockGroup(object):
 
     @property
     def width(self):
-        return self.mask.get_size()[0]
+        return self.mask.shape[1]
     @property
     def height(self):
-        return self.mask.get_size()[1]
+        return self.mask.shape[0]
 
     def merge(self, other, x, y):
         for dx in range(other.width):
             for dy in range(other.height):
-                v = other.mask.get_at((dx, dy))
+                v = other.mask[dy, dx]
                 if 0 <= x+dx < self.width and 0 <= y+dy < self.height and v:
-                    self.mask.set_at((x+dx, y+dy), v)
+                    self.mask[y+dy, x+dx] = v
         bs = self.blocksize
         self.surf.blit(other.surf, (x*bs, y*bs))
         self.surf = self.surf.convert()
 
     def filled_lines(self):
-        w = self.width
-        row = pygame.mask.Mask((w, 1))
-        row.fill()
         lines = []
         for y in range(self.height):
-            if row.overlap_area(self.mask, (0, -y)) >= w:
+            if self.mask[y].min():
                 lines.append(y)
         return lines
 
     def copy_mask_line(self, ya, yb):
-        for x in range(self.width):
-            v = self.mask.get_at((x, ya))
-            self.mask.set_at((x, yb), v)
+        self.mask[yb] = self.mask[ya]
 
     def copy_surf_line(self, ya, yb):
         bs = self.blocksize
@@ -134,12 +135,10 @@ class StaticBlockGroup(object):
                 dy += 1
                 nl = next(revlines, -1)
         if lines:
-            self.clear_lines(0)
+            self.clear_lines(0, dy)
 
     def clear_lines(self, y, dy=1):
-        for v in range(dy):
-            for x in range(self.width):
-                self.mask.set_at((x, v), 0)
+        self.mask[y:y+dy] = False
         r = pygame.Rect(0, y, self.width*self.blocksize, dy*self.blocksize)
         pygame.draw.rect(self.surf, pygame.color.Color(0, 0, 0, 0), r)
 
@@ -149,15 +148,24 @@ class StaticBlockGroup(object):
     def draw(self, surface):
         surface.blit(self.surf, (0, 0))
 
+    def mask_in_shape(self, width, height, x=0, y=0):
+        m = numpy.zeros((height, width), numpy.dtype(bool))
+        minx = max(0, -1*x)
+        miny = max(0, -1*y)
+        maxx = min(width, x+self.mask.shape[1])-x
+        maxy = min(height, y+self.mask.shape[0])-y
+        m[y+miny:y+maxy, x+minx:x+maxx] = self.mask[miny:maxy,minx:maxx]
+        return m
+
     def collides(self, other, x, y):
-        return self.mask.overlap_area(other.mask, (-x, -y)) > 0
+        t = self.mask_in_shape(other.width, other.height, x, y)
+        return (t*other.mask).max()
 
     def outside(self, other, x, y):
-        for dx, dy in self.mask.outline():
-            if 0 <= x+dx < other.width and 0 <= y+dy < other.height:
-                continue
+        ys, xs = numpy.nonzero(self.mask)
+        if 0 > x+min(xs) or other.width <= x+max(xs):
             return True
-        return False
+        return 0 > y+min(ys) or other.height <= y+max(ys)
 
 class MoveableBlockGroup(object):
     def __init__(self, blockrotations, x, y, rot=0):
@@ -192,12 +200,12 @@ class BlockCreator(object):
 
     @property
     def miny(self):
-        return min(y for x, y in self.mask.outline())
+        return min(numpy.nonzero(self.mask)[0])
 
     def gen_blockgroup(self, x, y, blocksize):
         lastmask = self.mask
         groups=[]
-        cx, cy = self.mask.centroid()
+        cx, cy = centroid(self.mask)
         for _ in range(4):
             surf = make_surf(lastmask, self.color, blocksize)
             g = StaticBlockGroup(lastmask, surf, blocksize)
@@ -208,9 +216,9 @@ class BlockCreator(object):
         return mbg
 
 def to_mask(coords, dim=5):
-    m = pygame.mask.Mask((dim, dim))
+    m = numpy.zeros((dim, dim), numpy.dtype(bool))
     for x, y in coords:
-        m.set_at((x,y), 1)
+        m[y, x] = True
     return m
 
 LBlockCoords = [(2,1), (2,2), (2,3), (3,3)]
