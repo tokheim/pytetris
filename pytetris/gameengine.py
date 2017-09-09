@@ -1,7 +1,7 @@
 import pygame
 from pytetris import block
 
-def create_game(width, height, blocksize=30):
+def create_game(width, height, blocksize=30, movetime=500):
     pygame.init()
     pygame.display.set_caption('PyTetris')
 
@@ -9,9 +9,8 @@ def create_game(width, height, blocksize=30):
     font = pygame.font.Font(None, 16)
     bg = block.standard_generator(width, blocksize)
     staticblock = block.emptyblock(width, height, blocksize)
-    ge = GameEngine(screen, staticblock, bg, 500)
-    ge.rungame()
-    print "Score: "+str(ge.score)
+    ge = GameEngine(screen, staticblock, bg, movetime)
+    return ge
 
 class GameEngine(object):
     def __init__(self, screen, static_block, blockgen, movetime, fps=40):
@@ -45,6 +44,13 @@ class GameEngine(object):
             self.check_events()
             self.update(dt)
             self.draw()
+        return self.score
+
+    def clear(self):
+        self.current_block = None
+        self.hold_dir = 0
+        self.score = 0
+        self.static_block.clear()
 
     def check_events(self):
         self.hold_tick += 1

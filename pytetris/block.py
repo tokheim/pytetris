@@ -134,13 +134,17 @@ class StaticBlockGroup(object):
                 dy += 1
                 nl = next(revlines, -1)
         if lines:
-            self.clear_line(0)
+            self.clear_lines(0)
 
-    def clear_line(self, y):
-        for x in range(self.width):
-            self.mask.set_at((x, y), 0)
-        r = pygame.Rect(0, 0, self.width*self.blocksize, self.blocksize)
+    def clear_lines(self, y, dy=1):
+        for v in range(dy):
+            for x in range(self.width):
+                self.mask.set_at((x, v), 0)
+        r = pygame.Rect(0, y, self.width*self.blocksize, dy*self.blocksize)
         pygame.draw.rect(self.surf, pygame.color.Color(0, 0, 0, 0), r)
+
+    def clear(self):
+        return self.clear_lines(y=0, dy=self.height)
 
     def draw(self, surface):
         surface.blit(self.surf, (0, 0))
