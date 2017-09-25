@@ -13,7 +13,7 @@ def create_game(width, height, blocksize=30, movetime=500):
     return ge
 
 class GameEngine(object):
-    def __init__(self, screen, static_block, blockgen, movetime, fps=40):
+    def __init__(self, screen, static_block, blockgen, movetime, fps=40, ontick=None):
         self.screen = screen
         self.static_block = static_block
         self.fps = fps
@@ -28,14 +28,16 @@ class GameEngine(object):
         self.score = 0
         self.hold_tick = 0
         self.hold_dir = 0
+        self.gameframe = 0
+        self.ontick = ontick
 
     @property
     def width(self):
-        return self.static_block.mask.get_size()[0]
+        return self.static_block.mask.shape[1]
 
     @property
     def height(self):
-        return self.static_block.mask.get_size()[1]
+        return self.static_block.mask.shape[0]
 
     def rungame(self):
         self.is_running = True
@@ -44,12 +46,16 @@ class GameEngine(object):
             self.check_events()
             self.update(dt)
             self.draw()
+            self.gameframe += 1
+            if self.ontick is not None:
+                self.ontick()
         return self.score
 
     def clear(self):
         self.current_block = None
         self.hold_dir = 0
         self.score = 0
+        self.gameframe = 0
         self.static_block.clear()
 
     def check_events(self):

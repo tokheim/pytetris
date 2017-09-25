@@ -148,8 +148,8 @@ class StaticBlockGroup(object):
     def draw(self, surface):
         surface.blit(self.surf, (0, 0))
 
-    def mask_in_shape(self, width, height, x=0, y=0):
-        m = numpy.zeros((height, width), numpy.dtype(bool))
+    def mask_in_shape(self, width, height, x=0, y=0, dtype = numpy.dtype(bool)):
+        m = numpy.zeros((height, width), dtype)
         minx = max(0, -1*x)
         miny = max(0, -1*y)
         maxx = min(width, x+self.mask.shape[1])-x
