@@ -1,3 +1,3 @@
 from pytetris import train
 
-train.run(100)
+train.run(100000)
