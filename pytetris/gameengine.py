@@ -1,9 +1,9 @@
 import pygame
 from pytetris import block
 
-def create_game(width, height, blocksize=30, movetime=500, fps=40):
+def create_game(width, height, blocksize=30, movetime=500, fps=40, name='PyTetris'):
     pygame.init()
-    pygame.display.set_caption('PyTetris')
+    pygame.display.set_caption(name)
 
     screen = pygame.display.set_mode((width*blocksize, height*blocksize))
     font = pygame.font.Font(None, 16)
@@ -154,3 +154,25 @@ class GameEngine(object):
             self.current_block.y += 1
         elif self.current_block:
             self.land_block()
+
+class Move(object):
+    LEFT=0
+    RIGHT=1
+    ROT_DOWN=2
+    ROT_UP=3
+    NOTHING=4
+
+    @staticmethod
+    def size():
+        return 5
+
+    @staticmethod
+    def apply(move, game_eng):
+        if move == Move.LEFT:
+            game_eng.movex(-1)
+        elif move == Move.RIGHT:
+            game_eng.movex(1)
+        elif move == Move.ROT_DOWN:
+            game_eng.rotate(-1)
+        elif move == Move.ROT_UP:
+            game_eng.rotate(1)
