@@ -14,10 +14,12 @@ class GameSession(object):
         self.last_score = 0
         self.game_vision = game_vision
         self.game_scorer = game_scorer
+        self.total_score = 0
 
         self.point_cooldown = 0.95
 
     def reset_game(self):
+        self.total_score += self.game_eng.score
         self.training_examples = []
         self.pointchanges = []
         self.game_eng.clear()
@@ -33,9 +35,14 @@ class GameSession(object):
             self.last_score = score
 
         move = self.tensor_holder.find_move(blockstate)
-        train_ex = TrainingExample(self.game_eng.gameframe, blockstate, move)
-        self.training_examples.append(train_ex)
-        Move.apply(move, self.game_eng)
+        legal = Move.apply(move, self.game_eng)
+        train_ex = TrainingExample(
+                self.game_eng.gameframe,
+                blockstate,
+                move,
+                self.game_eng.num_blocks)
+        if legal:
+            self.training_examples.append(train_ex)
 
     def tag_examples(self):
         points = 0
@@ -55,10 +62,11 @@ class PointChange(object):
         self.gf = gf
 
 class TrainingExample(object):
-    def __init__(self, gf, blockstate, move, points_gained=None):
+    def __init__(self, gf, blockstate, move, block_num, points_gained=None):
         self.gf = gf
         self.blockstate = blockstate
         self.move = move
+        self.block_num = block_num
         self.points_gained = points_gained
 
     def __str__(self):

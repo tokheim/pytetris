@@ -1,11 +1,13 @@
 import pygame
 from pytetris import block
 
-def create_game(width, height, blocksize=30, movetime=500, fps=40, name='PyTetris'):
+def create_game(width, height, blocksize=30, movetime=500, fps=40, name='PyTetris', include_screen=True):
     pygame.init()
     pygame.display.set_caption(name)
 
-    screen = pygame.display.set_mode((width*blocksize, height*blocksize))
+    screen = False
+    if include_screen:
+        screen = pygame.display.set_mode((width*blocksize, height*blocksize))
     font = pygame.font.Font(None, 16)
     bg = block.standard_generator(width, blocksize)
     staticblock = block.emptyblock(width, height, blocksize)
@@ -30,6 +32,7 @@ class GameEngine(object):
         self.hold_dir = 0
         self.gameframe = 0
         self.ontick = ontick
+        self.num_blocks = 0
 
     @property
     def width(self):
@@ -43,12 +46,21 @@ class GameEngine(object):
         self.is_running = True
         while self.is_running:
             dt = self.clock.tick(self.fps)
-            self.check_events()
-            self.update(dt)
+            self.perform_run(dt)
             self.draw()
-            self.gameframe += 1
-            if self.ontick is not None:
-                self.ontick()
+        return self.score
+
+    def perform_run(self, dt):
+        self.check_events()
+        self.update(dt)
+        self.gameframe += 1
+        if self.ontick is not None:
+            self.ontick()
+
+    def run_fast(self):
+        self.is_running = True
+        while self.is_running:
+            self.perform_run(1000/self.fps)
         return self.score
 
     def clear(self):
@@ -56,6 +68,7 @@ class GameEngine(object):
         self.hold_dir = 0
         self.score = 0
         self.gameframe = 0
+        self.num_blocks = 0
         self.static_block.clear()
 
     def check_events(self):
@@ -82,7 +95,6 @@ class GameEngine(object):
                     self.fast = True
             elif e.type == 12:#exit button
                 self.is_running = False
-                self.quit=True
             elif e.type == 3:#keyup
                 if e.key == 32:#space
                     self.fast = False
@@ -117,6 +129,7 @@ class GameEngine(object):
             return
         if self.current_block is None:
             self.create_block()
+            self.num_blocks += 1
         self.lastmove += dt
         movetime = self.movetime
         if self.fast:
@@ -136,10 +149,14 @@ class GameEngine(object):
     def movex(self, dx):
         if self.current_block and self.check_move(dx=dx):
             self.current_block.x += dx
+            return True
+        return False
 
     def rotate(self, dz):
         if self.current_block and self.check_move(dz=dz):
             self.current_block.rotate(dz)
+            return True
+        return False
 
     def land_block(self):
         self.current_block.freeze_into(self.static_block)
@@ -169,10 +186,27 @@ class Move(object):
     @staticmethod
     def apply(move, game_eng):
         if move == Move.LEFT:
-            game_eng.movex(-1)
+            return game_eng.movex(-1)
         elif move == Move.RIGHT:
-            game_eng.movex(1)
+            return game_eng.movex(1)
         elif move == Move.ROT_DOWN:
-            game_eng.rotate(-1)
+            return game_eng.rotate(-1)
         elif move == Move.ROT_UP:
-            game_eng.rotate(1)
+            return game_eng.rotate(1)
+        return True
+
+    @staticmethod
+    def dx(move):
+        if move == Move.LEFT:
+            return -1
+        if move == Move.RIGHT:
+            return +1
+        return 0
+
+    @staticmethod
+    def dz(move):
+        if move == Move.ROT_DOWN:
+            return -1
+        if move == Move.ROT_UP:
+            return 1
+        return 0

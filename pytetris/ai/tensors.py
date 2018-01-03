@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.core.framework import summary_pb2
 import numpy
 import random
 import logging
@@ -6,7 +7,6 @@ import logging
 log = logging.getLogger(__name__)
 
 def build_tensors(height, width, channels, move_size, model_name):
-    neuron_size = 20
     th = TensorHolder(move_size)
     th.x_board = tf.placeholder(tf.float32, shape=[None, height, width, channels])
     th.x_input = tf.placeholder(tf.float32, shape=[None, move_size])
@@ -14,25 +14,31 @@ def build_tensors(height, width, channels, move_size, model_name):
     summarize(th.y_est, 'y_est')
 
     th.tensor_ops.append(TensorOp(th.x_board, "x_board"))
-    th.tensor_ops.append(conv_op(
-        last_op=th.tensor_ops[-1],
-        conv_x=3, conv_y=1, features=8,
-        pool_x=2, pool_y=1, name="conv_1"))
-    th.tensor_ops.append(fc_op(th.tensor_ops[-1], 18, 'fc_1', True))
-    th.tensor_ops.append(fc_op(th.tensor_ops[-1], 12, 'fc_2', True))
-    th.tensor_ops.append(fc_op(th.tensor_ops[-1], move_size, 'fc_out'))
+    #th.tensor_ops.append(conv_op(
+    #    last_op=th.tensor_ops[-1],
+    #    conv_x=3, conv_y=1, features=16,
+    #    pool_x=2, pool_y=1, name="conv_1"))
+    fc_size = 20
+    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_1', op=tf.sigmoid))
+    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_2', op=tf.sigmoid))
+    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_3', op=tf.sigmoid))
+    th.tensor_ops.append(residual_op(th.tensor_ops, 2))
+    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_4', op=tf.sigmoid))
+    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_5', op=tf.sigmoid))
+    th.tensor_ops.append(residual_op(th.tensor_ops, 2))
+    th.tensor_ops.append(fc_op(th.tensor_ops[-1], move_size, 'fc_out', bias=-0.5))
 
     [t_op.summarize() for t_op in th.tensor_ops]
 
     th.y = tf.multiply(th.tensor_ops[-1].out_op, th.x_input)
     summarize(th.tensor_ops[-1].out_op, "y_out")
     th.error = tf.reduce_mean(tf.square(tf.subtract(th.y_est, th.y)))
-    th.train_step = tf.train.AdamOptimizer(1e-3).minimize(th.error)
+    th.train_step = tf.train.AdamOptimizer(1e-1).minimize(th.error)
     with tf.name_scope('err'):
         tf.summary.scalar('error', th.error)
 
     #th.predictor = tf.argmax(th.y, 1)
-    th.predictor = tf.reshape(tf.multinomial(tf.log(tf.sigmoid(th.y))*6, 1), [-1, 1])
+    th.predictor = tf.reshape(tf.multinomial(tf.log(tf.sigmoid(th.y))*15, 1), [-1, 1])
     th.saver = tf.train.Saver()
     if model_name:
         th.summary_writer = tf.summary.FileWriter('summary/'+model_name)
@@ -85,24 +91,32 @@ class TensorHolder(object):
         data = self.feed_data(x_inputs, blockstates, y_ests)
         self.last_summary, _ = self.session.run([self.merged, self.train_step], feed_dict=data)
 
-    def summarize(self, n):
+    def summarize(self, n, **kwargs):
         if self.summary_writer is not None:
             self.summary_writer.add_summary(self.last_summary, n)
+            self.summary_writer.add_summary(self._gen_summaries(**kwargs), n)
 
-    def feed_data(self, x_inputs, blockstates, y_ests = None):
+    def _gen_summaries(self, **kwargs):
+        items = []
+        for k, v in kwargs.items():
+           items.append(summary_pb2.Summary.Value(tag=k, simple_value=v))
+        return summary_pb2.Summary(value=items)
+
+
+    def feed_data(self, x_inputs, blockstates, y_ests = None, score = None):
         data = { self.x_input: x_inputs, self.x_board: blockstates }
         if y_ests is not None:
             data[self.y_est] = y_ests
+        if score is not None:
+            data[self.total_score] = [score]
         return data
 
     def find_move(self, blockstate):
         data = self.feed_data(self._predict_x_inputs, [blockstate])
         move = self.predictor.eval(feed_dict=data)
-        #if random.random() < 0.01:
-        #    log.debug("Move suggestions: %s", self.y.eval(feed_dict=data)[0])
         return move[0]
 
-def fc_op(last_op, neuron_size, name, cap_zero=False):
+def fc_op(last_op, neuron_size, name, op=None, bias=0.1):
     in_tensor = last_op.out_op
     in_size = last_op.out_dim[1]
     if len(last_op.out_dim) > 2:
@@ -110,10 +124,10 @@ def fc_op(last_op, neuron_size, name, cap_zero=False):
             in_size *= n
         in_tensor = tf.reshape(in_tensor, [-1, in_size])
     W_fc = weight_variable([in_size, neuron_size])
-    b_fc = bias_variable([neuron_size])
+    b_fc = bias_variable([neuron_size], bias)
     h_fc = tf.matmul(in_tensor, W_fc) + b_fc
-    if cap_zero:
-        h_fc = tf.nn.relu(h_fc)
+    if op != None:
+        h_fc = op(h_fc)
     summarizable = { 'W_fc': W_fc, 'b_fc': b_fc }
     return TensorOp(h_fc, name, summarizable)
 
@@ -125,6 +139,10 @@ def conv_op(last_op, conv_x, conv_y, features, pool_x, pool_y, name):
     h_pool = pool(h_conv, [1, pool_x, pool_y, 1])
     summarizable = { 'W_conv': W_conv, 'b_conv': b_conv }
     return TensorOp(h_pool, name, summarizable)
+
+def residual_op(tensor_ops, delta):
+    op = tf.add(tensor_ops[-1].out_op, tensor_ops[-1-delta].out_op)
+    return TensorOp(op, None)
 
 class TensorOp(object):
     def __init__(self, out_op, name, summarizable=dict()):
@@ -145,8 +163,8 @@ def weight_variable(shape):
     initial = tf.truncated_normal(shape, stddev=0.1)
     return tf.Variable(initial)
 
-def bias_variable(shape):
-    initial = tf.constant(0.1, shape=shape)
+def bias_variable(shape, val=0.1):
+    initial = tf.constant(val, shape=shape)
     return tf.Variable(initial)
 
 def pool(x, ksize):

@@ -50,6 +50,37 @@ class AvgHeightScorer(object):
         costs = numpy.power(heights, self.height_exp)
         return - numpy.average(costs)*self.height_penalty
 
+class RuinedRowScorer(object):
+    def __init__(self, penalty=0.7):
+        self.penalty = penalty
+
+    def score(self, game_eng):
+        mask = game_eng.static_block.mask
+        ruined = _ruined_rows(mask)
+        return - sum(ruined)*self.penalty
+
+class PotentialScorer(object):
+    def __init__(self, exp=2, min_width=0.6, base_score=0.1):
+        self.exp = exp
+        self.min_width = min_width
+        self.base_score = base_score
+
+    def score(self, game_eng):
+        mask = game_eng.static_block.mask
+        ruined = _ruined_rows(mask)
+        sums = numpy.sum(mask, 1)
+        sums = sums[ruined==False]
+        sums = sums[sums>=self.min_width*mask.shape[1]]
+        sums += 1 - int(self.min_width*mask.shape[1])
+        return sum(sums**self.exp)*self.base_score
+
+def _ruined_rows(mask):
+    heights = _max_heights(mask)
+    ruined = numpy.zeros((mask.shape[0], ), numpy.dtype(bool))
+    for x in range(mask.shape[1]):
+        ruined[-heights[x]:] |= (mask[-heights[x]:, x] == False)
+    return ruined
+
 def _max_heights(mask):
     h = numpy.arange(mask.shape[0], 0, -1)
     indiced = (mask.transpose()*h).transpose()
