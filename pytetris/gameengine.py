@@ -46,12 +46,12 @@ class GameEngine(object):
         self.is_running = True
         while self.is_running:
             dt = self.clock.tick(self.fps)
+            self.check_events()
             self.perform_run(dt)
             self.draw()
         return self.score
 
     def perform_run(self, dt):
-        self.check_events()
         self.update(dt)
         self.gameframe += 1
         if self.ontick is not None:

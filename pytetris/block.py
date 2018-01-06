@@ -109,8 +109,6 @@ class StaticBlockGroup(object):
         self.merge_masks(other, x, y)
         bs = self.blocksize
         self.surf.blit(other.surf, (x*bs, y*bs))
-        self.surf.set_alpha(None)
-        #self.surf = self.surf.convert()
 
     def filled_lines(self):
         lines = []
