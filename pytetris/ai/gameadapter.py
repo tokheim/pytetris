@@ -5,12 +5,15 @@ import random
 log = logging.getLogger(__name__)
 
 class FlatVision(object):
-    def __init__(self, game_eng):
+    def __init__(self, game_eng, normalize_height=False):
         self.game_eng = game_eng
+        self.normalize_height = normalize_height
 
     def create_blockstate(self):
         block = numpy.zeros((1, self.game_eng.width, 2), numpy.dtype(int))
         block[0, :, 0] = _max_heights(self.game_eng.static_block.mask)
+        if self.normalize_height:
+            block = block - numpy.mean(block[0, :, 0])
         mblock = self.game_eng.current_block
         if mblock is not None:
             mask = mblock.block.mask_in_shape(
@@ -58,6 +61,15 @@ class RuinedRowScorer(object):
         mask = game_eng.static_block.mask
         ruined = _ruined_rows(mask)
         return - sum(ruined)*self.penalty
+
+class LooseScorer(object):
+    def __init__(self, penalty=5):
+        self.penalty = penalty
+
+    def score(self, game_eng):
+        if not game_eng.is_running:
+            return -self.penalty
+        return 0
 
 class PotentialScorer(object):
     def __init__(self, exp=2, min_width=0.6, base_score=0.1):

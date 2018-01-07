@@ -98,15 +98,19 @@ class StaticBlockGroup(object):
     def height(self):
         return self.mask.shape[0]
 
-    def merge(self, other, x, y):
+    def merge_masks(self, other, x, y):
         for dx in range(other.width):
             for dy in range(other.height):
                 v = other.mask[dy, dx]
                 if 0 <= x+dx < self.width and 0 <= y+dy < self.height and v:
                     self.mask[y+dy, x+dx] = v
+
+    def merge(self, other, x, y):
+        self.merge_masks(other, x, y)
         bs = self.blocksize
         self.surf.blit(other.surf, (x*bs, y*bs))
-        self.surf = self.surf.convert()
+        self.surf.set_alpha(None)
+        #self.surf = self.surf.convert()
 
     def filled_lines(self):
         lines = []

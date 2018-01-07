@@ -33,12 +33,13 @@ def build_tensors(height, width, channels, move_size, model_name):
     th.y = tf.multiply(th.tensor_ops[-1].out_op, th.x_input)
     summarize(th.tensor_ops[-1].out_op, "y_out")
     th.error = tf.reduce_mean(tf.square(tf.subtract(th.y_est, th.y)))
-    th.train_step = tf.train.AdamOptimizer(1e-1).minimize(th.error)
+    th.train_step = tf.train.AdamOptimizer(1e-2).minimize(th.error)
     with tf.name_scope('err'):
         tf.summary.scalar('error', th.error)
 
     #th.predictor = tf.argmax(th.y, 1)
-    th.predictor = tf.reshape(tf.multinomial(tf.log(tf.sigmoid(th.y))*15, 1), [-1, 1])
+    #15
+    th.predictor = tf.reshape(tf.multinomial(tf.log(tf.sigmoid(th.y))*25, 1), [-1, 1])
     th.saver = tf.train.Saver()
     if model_name:
         th.summary_writer = tf.summary.FileWriter('summary/'+model_name)
@@ -113,8 +114,8 @@ class TensorHolder(object):
 
     def find_move(self, blockstate):
         data = self.feed_data(self._predict_x_inputs, [blockstate])
-        move = self.predictor.eval(feed_dict=data)
-        return move[0]
+        move = self.predictor.eval(feed_dict=data)[0]
+        return move
 
 def fc_op(last_op, neuron_size, name, op=None, bias=0.1):
     in_tensor = last_op.out_op

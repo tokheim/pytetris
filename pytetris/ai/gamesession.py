@@ -16,7 +16,7 @@ class GameSession(object):
         self.game_scorer = game_scorer
         self.total_score = 0
 
-        self.point_cooldown = 0.95
+        self.point_cooldown = 0.90
 
     def reset_game(self):
         self.total_score += self.game_eng.score

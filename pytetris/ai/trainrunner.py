@@ -10,11 +10,12 @@ log = logging.getLogger(__name__)
 def setup(model_name, draw_every=100):
     screen = draw_every is not None
     ge = gameengine.create_game(10, 20, 30, movetime=10, fps=80, name=model_name, include_screen = screen)
-    game_vision = gameadapter.FlatVision(ge)
+    game_vision = gameadapter.FlatVision(ge, normalize_height=True)
     scorer = gameadapter.MultiScorer(
             gameadapter.GameScoreScorer(),
-            gameadapter.AvgHeightScorer(0.1, 1.5, 0))
-            #gameadapter.RuinedRowScorer(),
+            gameadapter.LooseScorer(),
+            #gameadapter.AvgHeightScorer(0.1, 1.5, 0))
+            gameadapter.RuinedRowScorer())
             #gameadapter.PotentialScorer())
 
     h, w, c = game_vision.dim()
