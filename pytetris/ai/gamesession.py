@@ -1,10 +1,9 @@
 import logging
-from pytetris.gameengine import Move
 
 log = logging.getLogger(__name__)
 
 class GameSession(object):
-    def __init__(self, game_eng, tensor_holder, game_vision, game_scorer):
+    def __init__(self, game_eng, tensor_holder, game_vision, game_scorer, move_planner):
         self.game_eng = game_eng
         self.game_eng.ontick = self.ontick
         self.tensor_holder = tensor_holder
@@ -15,8 +14,9 @@ class GameSession(object):
         self.game_vision = game_vision
         self.game_scorer = game_scorer
         self.total_score = 0
-
+        self.move_planner = move_planner
         self.point_cooldown = 0.90
+        self.move_plan = None
 
     def reset_game(self):
         self.total_score += self.game_eng.score
@@ -34,15 +34,19 @@ class GameSession(object):
             self.pointchanges.append(PointChange(score-self.last_score, self.game_eng.gameframe))
             self.last_score = score
 
-        move = self.tensor_holder.find_move(blockstate)
-        legal = Move.apply(move, self.game_eng)
-        train_ex = TrainingExample(
-                self.game_eng.gameframe,
-                blockstate,
-                move,
-                self.game_eng.num_blocks)
-        if legal:
+        if self.game_eng.current_block is None:
+            self.move_plan = None
+            return
+
+        if self.move_plan is None or self.move_plan.expended():
+            self.move_plan = self.move_planner.generate_plan(self.tensor_holder.predict(blockstate))
+            train_ex = TrainingExample(
+                    self.game_eng.gameframe,
+                    blockstate,
+                    self.move_plan,
+                    self.game_eng.num_blocks)
             self.training_examples.append(train_ex)
+        self.move_plan.apply(self.game_eng)
 
     def tag_examples(self):
         points = 0

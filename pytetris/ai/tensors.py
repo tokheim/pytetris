@@ -37,9 +37,10 @@ def build_tensors(height, width, channels, move_size, model_name):
     with tf.name_scope('err'):
         tf.summary.scalar('error', th.error)
 
-    #th.predictor = tf.argmax(th.y, 1)
-    #15
-    th.predictor = tf.reshape(tf.multinomial(tf.log(tf.sigmoid(th.y))*25, 1), [-1, 1])
+    last_op = th.tensor_ops[-1]
+    random_layer = tf.random_normal([move_size], stddev=0.3)
+    th.predictor = last_op.out_op + random_layer
+
     th.saver = tf.train.Saver()
     if model_name:
         th.summary_writer = tf.summary.FileWriter('summary/'+model_name)
@@ -57,7 +58,6 @@ class TensorHolder(object):
         self.train_step = None
         self.predictor = None
         self.dropout_prob = None
-        self._predict_x_inputs = numpy.ones((1, move_size), numpy.dtype(int))
         self.error = None
         self.move_size = move_size
         self.tensor_ops = []
@@ -84,12 +84,10 @@ class TensorHolder(object):
         blockstates = []
         y_ests = []
         for tex in train_examples:
-            x_input = numpy.zeros((self.move_size, ), numpy.dtype(int))
-            x_input[tex.move] = 1
-            x_inputs.append(x_input)
-            y_ests.append(x_input * tex.points_gained)
+            x_inputs.append(tex.move.movemask)
+            y_ests.append(tex.move.movemask * tex.points_gained)
             blockstates.append(tex.blockstate)
-        data = self.feed_data(x_inputs, blockstates, y_ests)
+        data = self.feed_data(blockstates, x_inputs, y_ests)
         self.last_summary, _ = self.session.run([self.merged, self.train_step], feed_dict=data)
 
     def summarize(self, n, **kwargs):
@@ -104,18 +102,19 @@ class TensorHolder(object):
         return summary_pb2.Summary(value=items)
 
 
-    def feed_data(self, x_inputs, blockstates, y_ests = None, score = None):
-        data = { self.x_input: x_inputs, self.x_board: blockstates }
+    def feed_data(self, blockstates, x_inputs = None, y_ests = None, score = None):
+        data = { self.x_board: blockstates }
+        if x_inputs is not None:
+            data[self.x_input] = x_inputs
         if y_ests is not None:
             data[self.y_est] = y_ests
         if score is not None:
             data[self.total_score] = [score]
         return data
 
-    def find_move(self, blockstate):
-        data = self.feed_data(self._predict_x_inputs, [blockstate])
-        move = self.predictor.eval(feed_dict=data)[0]
-        return move
+    def predict(self, blockstate):
+        data = self.feed_data([blockstate])
+        return self.predictor.eval(feed_dict=data).flatten()
 
 def fc_op(last_op, neuron_size, name, op=None, bias=0.1):
     in_tensor = last_op.out_op

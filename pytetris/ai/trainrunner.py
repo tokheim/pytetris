@@ -3,7 +3,7 @@ import random
 import math
 import tensorflow as tf
 from pytetris import gameengine
-from pytetris.ai import gameadapter, tensors, gamesession, train_scrubber
+from pytetris.ai import gameadapter, tensors, gamesession, move_planners
 
 log = logging.getLogger(__name__)
 
@@ -14,13 +14,13 @@ def setup(model_name, draw_every=100):
     scorer = gameadapter.MultiScorer(
             gameadapter.GameScoreScorer(),
             gameadapter.LooseScorer(),
-            #gameadapter.AvgHeightScorer(0.1, 1.5, 0))
-            gameadapter.RuinedRowScorer())
+            gameadapter.AvgHeightScorer(0.1, 1.5, 0))
+            #gameadapter.RuinedRowScorer())
             #gameadapter.PotentialScorer())
-
+    moveplanner = move_planners.MultiMover()
     h, w, c = game_vision.dim()
-    th = tensors.build_tensors(h, w, c, gameengine.Move.size(), model_name)
-    game_sess = gamesession.GameSession(ge, th, game_vision, scorer)
+    th = tensors.build_tensors(h, w, c, moveplanner.predictor_size(), model_name)
+    game_sess = gamesession.GameSession(ge, th, game_vision, scorer, moveplanner)
     return TrainRunner(model_name, ge, th, game_sess, draw_every)
 
 class TrainRunner(object):
@@ -31,7 +31,6 @@ class TrainRunner(object):
         self.game_sess = game_sess
         self.reinforcement_examples = []
         self.current_batch = []
-        self.train_ex_scrubber = train_scrubber.RedundantScrubber()
         self.draw_every = draw_every
 
         self.select_ratio = 0.05
@@ -63,7 +62,7 @@ class TrainRunner(object):
 
     def clean_examples(self):
         train_ex = self.game_sess.training_examples
-        train_ex = self.train_ex_scrubber.scrub(train_ex)
+        train_ex = [tex for tex in train_ex if tex.move.trainable]
         log.info("Cleaned from %s to %s examples",
                 len(self.game_sess.training_examples), len(train_ex))
         self.game_sess.training_examples = train_ex
