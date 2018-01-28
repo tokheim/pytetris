@@ -33,11 +33,11 @@ class TrainRunner(object):
         self.current_batch = []
         self.draw_every = draw_every
 
-        self.select_ratio = 0.05
-        self.reinforced_ratio = 6
+        self.select_ratio = 0.2
+        self.reinforced_ratio = 3
         self.batch_size = 512
         self.max_reinforce = 50000
-        self.reinforce_add_ratio = 0.1
+        self.reinforce_add_ratio = 0.2
 
     def run(self, restore_from=None):
         with tf.Session() as session:

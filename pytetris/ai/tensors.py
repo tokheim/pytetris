@@ -38,8 +38,12 @@ def build_tensors(height, width, channels, move_size, model_name):
         tf.summary.scalar('error', th.error)
 
     last_op = th.tensor_ops[-1]
-    random_layer = tf.random_normal([move_size], stddev=0.3)
-    th.predictor = last_op.out_op + random_layer
+
+    rand_decision = tf.random_uniform(shape=[], minval=0., maxval=1., dtype=tf.float32)
+    cond = tf.greater(rand_decision, 0.05)
+    rand_layer = tf.truncated_normal([move_size], stddev=0.1)
+
+    th.predictor = tf.cond(cond, lambda: last_op.out_op, lambda: rand_layer)
 
     th.saver = tf.train.Saver()
     if model_name:

@@ -5,12 +5,19 @@ import random
 log = logging.getLogger(__name__)
 
 class FlatVision(object):
-    def __init__(self, game_eng, normalize_height=False):
+    def __init__(self, game_eng, normalize_height=False, flip_height=True):
         self.game_eng = game_eng
         self.normalize_height = normalize_height
+        self.flip_height = flip_height
+
+    def _init_state(self):
+        channels = 2
+        if self.flip_height:
+            channels = 3
+        return numpy.zeros((1, self.game_eng.width, channels), numpy.dtype(int))
 
     def create_blockstate(self):
-        block = numpy.zeros((1, self.game_eng.width, 2), numpy.dtype(int))
+        block = self._init_state()
         block[0, :, 0] = _max_heights(self.game_eng.static_block.mask)
         if self.normalize_height:
             block = block - numpy.mean(block[0, :, 0])
@@ -22,10 +29,31 @@ class FlatVision(object):
                     x=mblock.x,
                     y=mblock.y)
             block[0, :, 1] = _max_depths(mask, offset=2)
+            if self.flip_height:
+                block[0, :, 2] = _max_heights(mask)
         return block
 
     def dim(self):
-        return (1, self.game_eng.width, 2)
+        return self._init_state().shape
+
+class FullVision(object):
+    def __init__(self, game_eng):
+        self.game_eng = game_eng
+
+    def dim(self):
+        return (self.game_eng.height, self.game_eng.width, 2)
+
+    def create_blockstate(self):
+        block = numpy.zeros(self.dim(), numpy.dtype(int))
+        block[:,:,0] = self.game_eng.static_block.mask - 1
+        mblock = self.game_eng.current_block
+        if mblock is not None:
+            block[:,:,1] = mblock.block.mask_in_shape(
+                    height = self.game_eng.height,
+                    width = self.game_eng.width,
+                    x = mblock.x,
+                    y = mblock.y)
+        return block
 
 class MultiScorer(object):
     def __init__(self, *scorers):

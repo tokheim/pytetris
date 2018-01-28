@@ -15,7 +15,7 @@ class GameSession(object):
         self.game_scorer = game_scorer
         self.total_score = 0
         self.move_planner = move_planner
-        self.point_cooldown = 0.90
+        self.point_cooldown = 0.95
         self.move_plan = None
 
     def reset_game(self):
@@ -39,14 +39,16 @@ class GameSession(object):
             return
 
         if self.move_plan is None or self.move_plan.expended():
-            self.move_plan = self.move_planner.generate_plan(self.tensor_holder.predict(blockstate))
+            self.move_plan = self.move_planner.generate_plan(
+                    self.tensor_holder.predict(blockstate),
+                    self.game_eng)
             train_ex = TrainingExample(
                     self.game_eng.gameframe,
                     blockstate,
                     self.move_plan,
                     self.game_eng.num_blocks)
             self.training_examples.append(train_ex)
-        self.move_plan.apply(self.game_eng)
+        self.move_plan.apply()
 
     def tag_examples(self):
         points = 0
