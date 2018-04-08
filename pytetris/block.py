@@ -185,6 +185,9 @@ class MoveableBlockGroup(object):
     def rotate(self, dz):
         self.rot = (self.rot + dz) % 4
 
+    def rotatedblock(self, dz):
+        return self.blockrotations[(self.rot + dz) % 4]
+
     def draw(self, surface):
         bs = self.block.blocksize
         surface.blit(self.block.surf, (self.x*bs, self.y*bs))
@@ -246,6 +249,7 @@ def standard_generator(width, blocksize):
     blockcreators = []
     bdefs = [LBlockCoords, ZBlockCoords, OBlockCoords,
             IBlockCoords, DBlockCoords]
+    #bdefs = [OBlockCoords]
     colorit = colorgenerator()
     for bcoords in bdefs:
         mask = to_mask(bcoords)

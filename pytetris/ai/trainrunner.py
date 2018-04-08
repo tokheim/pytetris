@@ -3,28 +3,43 @@ import random
 import math
 import tensorflow as tf
 from pytetris import gameengine
-from pytetris.ai import gameadapter, tensors, gamesession, move_planners
+from pytetris.ai import gameadapter, tensors, gamesession, move_planners, training_holder
 
 log = logging.getLogger(__name__)
 
 def setup(model_name, draw_every=100):
     screen = draw_every is not None
     ge = gameengine.create_game(10, 20, 30, movetime=10, fps=80, name=model_name, include_screen = screen)
-    game_vision = gameadapter.FlatVision(ge, normalize_height=True)
+    #game_vision = gameadapter.FlatVision(ge, normalize_height=False)
+    game_vision = gameadapter.FullVision(ge)
+    #game_vision = gameadapter.FlatRotatedVision(ge)
     scorer = gameadapter.MultiScorer(
             gameadapter.GameScoreScorer(),
-            gameadapter.LooseScorer(),
-            gameadapter.AvgHeightScorer(0.1, 1.5, 0))
+            #gameadapter.LooseScorer(),
+            gameadapter.CompactnessScorer(1.0))
+            #gameadapter.AvgHeightScorer(0.1, 1.5, 0))
             #gameadapter.RuinedRowScorer())
             #gameadapter.PotentialScorer())
+    score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.95, block_cooldown=0.3)
     moveplanner = move_planners.MultiMover()
+    #moveplanner = move_planners.MultiMoverFull()
+    #moveplanner = move_planners.MultiEitherMover()
+    #moveplanner = move_planners.SingleMover()
+    #moveplanner = move_planners.AbsoluteMover(-3, 13)
+    #moveplanner = move_planners.AbsoluteMoverFull(-3, 13)
     h, w, c = game_vision.dim()
-    th = tensors.build_tensors(h, w, c, moveplanner.predictor_size(), model_name)
-    game_sess = gamesession.GameSession(ge, th, game_vision, scorer, moveplanner)
-    return TrainRunner(model_name, ge, th, game_sess, draw_every)
+    th = tensors.build_tensors(h, w, c, moveplanner.predictor_size(), game_vision.bool_vision(), model_name)
+    game_sess = gamesession.GameSession(ge, th, game_vision, score_handler, moveplanner)
+    train_holder = training_holder.TrainingHolder(
+            reinforce_ratio=0.4,
+            num_quarantine=2000,
+            num_reinforce=10000,
+            batch_size=512,
+            train_ratio=3.0)
+    return TrainRunner(model_name, ge, th, game_sess, train_holder, draw_every)
 
 class TrainRunner(object):
-    def __init__(self, model_name, game_eng, tensor_holder, game_sess, draw_every):
+    def __init__(self, model_name, game_eng, tensor_holder, game_sess, train_holder, draw_every):
         self.model_name = model_name
         self.game_eng = game_eng
         self.tensor_holder = tensor_holder
@@ -32,12 +47,9 @@ class TrainRunner(object):
         self.reinforcement_examples = []
         self.current_batch = []
         self.draw_every = draw_every
-
-        self.select_ratio = 0.2
-        self.reinforced_ratio = 3
-        self.batch_size = 512
-        self.max_reinforce = 50000
-        self.reinforce_add_ratio = 0.2
+        self.train_holder = train_holder
+        self.dropout_keep=1
+        self.score_stats = ScoreStats()
 
     def run(self, restore_from=None):
         with tf.Session() as session:
@@ -51,43 +63,49 @@ class TrainRunner(object):
             self.game_eng.rungame()
         else:
             self.game_eng.run_fast()
-        log.info("Game %s: Score %s, frames %s",
-                self.game_sess.games, self.game_eng.score, len(self.game_sess.training_examples))
-        self.clean_examples()
-        self.game_sess.tag_examples()
-        self.perform_training()
-        self.update_reinforcements()
-        if self.game_sess.games % 10 == 0 and self.model_name != None:
-            self.tensor_holder.save(self.model_name)
 
-    def clean_examples(self):
+        self.add_examples()
+        self.perform_training()
+        if self.game_sess.games % 100 == 0 and self.model_name != None:
+            self.tensor_holder.save(self.model_name)
+            self.summarize()
+
+    def add_examples(self):
+        self.game_sess.tag_examples()
         train_ex = self.game_sess.training_examples
         train_ex = [tex for tex in train_ex if tex.move.trainable]
-        log.info("Cleaned from %s to %s examples",
-                len(self.game_sess.training_examples), len(train_ex))
-        self.game_sess.training_examples = train_ex
+        self.train_holder.add_examples(train_ex)
 
     def perform_training(self):
-        num_train = int(len(self.game_sess.training_examples)*self.select_ratio)
-        train_ex = random.sample(self.game_sess.training_examples, num_train)
-        num_reinforce = min(len(self.reinforcement_examples), int(num_train*self.reinforced_ratio))
-        train_ex += random.sample(self.reinforcement_examples, num_reinforce)
-        random.shuffle(train_ex)
-        self.current_batch += train_ex
-        log.info("num train %s, num reinforce %s, batch_ready %s",
-                num_train, num_reinforce, len(self.current_batch))
+        for batch in self.train_holder.training_batches():
+            self.tensor_holder.train(batch, self.dropout_keep)
 
-        if len(self.current_batch) <= self.batch_size:
-            return
-        while len(self.current_batch) > self.batch_size:
-            batch = self.current_batch[:self.batch_size]
-            self.tensor_holder.train(batch)
-            del self.current_batch[:self.batch_size]
-            log.info("performed training bsize %s", len(batch))
-            self.tensor_holder.summarize(self.game_sess.games, total_score=self.game_sess.total_score)
+    def summarize(self):
+        score_per_game = self.score_stats.score_per_game(self.game_sess)
+        self.tensor_holder.summarize(
+                self.game_sess.games,
+                total_score=self.game_sess.total_score,
+                score_rate=score_per_game)
+        log.info("Game %s: score/game %s, total %s, trained_batches %s",
+                self.game_sess.games, score_per_game, self.game_sess.total_score,
+                self.train_holder.batches_trained)
 
     def update_reinforcements(self):
         num_select = int(len(self.game_sess.training_examples) * self.reinforce_add_ratio)
         selected = random.sample(self.game_sess.training_examples, num_select)
         to_remove = max(len(self.reinforcement_examples) + len(selected) - self.max_reinforce, 0)
         self.reinforcement_examples = self.reinforcement_examples[to_remove:] + selected
+
+class ScoreStats(object):
+    def __init__(self):
+        self.last_game = 0
+        self.last_score = 0
+
+    def score_per_game(self, game_sess):
+        score = game_sess.total_score - self.last_score
+        games = game_sess.games - self.last_game
+        self.last_game = game_sess.games
+        self.last_score = game_sess.total_score
+        if games == 0:
+            return 0
+        return score / float(games)

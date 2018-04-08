@@ -44,6 +44,26 @@ class MultiMoverFull(object):
         movemask = _build_movemask(self.predictor_size(), i)
         return MultiMove(x, z, movemask, self.max_moves, gameengine)
 
+class MultiEitherMover(object):
+    def __init__(self, dx=(-4,-2,-1,0,1,2,4), dz=(-1,0,1,2), padding = 1):
+        self.dx = dx
+        self.dz = dz
+        self.padding = padding
+
+    def predictor_size(self):
+        return len(self.dx)+len(self.dz)
+
+    def generate_plan(self, predictor, gameengine):
+        i = numpy.argmax(predictor)
+        movemask = _build_movemask(self.predictor_size(), i)
+        if i >= len(self.dx):
+            z = self.dz[i-len(self.dx)]
+            moves = max(self.dz)+self.padding
+            return MultiMove(0, z, movemask, moves, gameengine)
+        x = self.dx[i]
+        moves = max(self.dx)+self.padding
+        return MultiMove(x, 0, movemask, moves, gameengine)
+
 class AbsoluteMover(object):
     def __init__(self, minx, maxx, dz=(-1,0,1,2)):
         self.minx = minx

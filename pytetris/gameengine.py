@@ -94,7 +94,7 @@ class GameEngine(object):
                 elif e.key == 32:#space
                     self.fast = True
             elif e.type == 12:#exit button
-                self.is_running = False
+                self.stop()
             elif e.type == 3:#keyup
                 if e.key == 32:#space
                     self.fast = False
@@ -102,6 +102,9 @@ class GameEngine(object):
                     self.hold_dir = 0
         if self.check_hold_move() and not self.pause:
             self.movex(self.hold_dir)
+
+    def stop(self):
+        self.is_running=False
 
     def check_hold_move(self):
         return self.hold_dir != 0 and self.hold_tick > 8 and self.hold_tick % 2 == 0

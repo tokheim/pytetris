@@ -1,40 +1,39 @@
 import logging
+import numpy
 
 log = logging.getLogger(__name__)
 
 class GameSession(object):
-    def __init__(self, game_eng, tensor_holder, game_vision, game_scorer, move_planner):
+    def __init__(self, game_eng, tensor_holder, game_vision, score_handler, move_planner):
         self.game_eng = game_eng
         self.game_eng.ontick = self.ontick
         self.tensor_holder = tensor_holder
-        self.pointchanges = []
         self.training_examples = []
         self.games = 0
-        self.last_score = 0
         self.game_vision = game_vision
-        self.game_scorer = game_scorer
+        self.score_handler = score_handler
         self.total_score = 0
         self.move_planner = move_planner
-        self.point_cooldown = 0.95
         self.move_plan = None
+        self.max_blocks = 200
 
     def reset_game(self):
         self.total_score += self.game_eng.score
         self.training_examples = []
-        self.pointchanges = []
         self.game_eng.clear()
+        self.score_handler.clear()
         self.games += 1
-        self.last_score = 0
 
     def ontick(self):
         blockstate = self.game_vision.create_blockstate()
-        score = self.game_scorer.score(self.game_eng)
-        if score != self.last_score:
-            #log.debug("score change %s", score - self.last_score)
-            self.pointchanges.append(PointChange(score-self.last_score, self.game_eng.gameframe))
-            self.last_score = score
+        self.score_handler.score()
+        if self.game_eng.num_blocks > self.max_blocks:
+            log.info("game %s reached max blocks (%s), stopping", self.games, self.max_blocks)
+            self.game_eng.stop()
 
         if self.game_eng.current_block is None:
+            if self.training_examples:
+                self.training_examples[-1].next_blockstate = blockstate
             self.move_plan = None
             return
 
@@ -51,21 +50,14 @@ class GameSession(object):
         self.move_plan.apply()
 
     def tag_examples(self):
-        points = 0
-        last_point_gf = self.game_eng.gameframe
-        pointchanges = list(self.pointchanges)
-        for te in reversed(self.training_examples):
-            while len(pointchanges) > 0 and pointchanges[-1].gf > te.gf:
-                pc = pointchanges.pop()
-                points *= pow(self.point_cooldown, last_point_gf-pc.gf)
-                points += pc.points
-                last_point_gf = pc.gf
-            te.points_gained = points*pow(self.point_cooldown, last_point_gf - te.gf)
-
-class PointChange(object):
-    def __init__(self, points, gf):
-        self.points = points
-        self.gf = gf
+        gfs = [te.gf for te in self.training_examples]
+        scores = self.score_handler.scores_at(gfs)
+        for te, score in zip(self.training_examples, scores):
+            te.points_gained = score
+        for ps, ns in zip(self.training_examples[:-1], self.training_examples[1:]):
+            if ps.next_blockstate is None:
+                ps.next_blockstate = ns.blockstate
+        self.training_examples = self.training_examples[:-1]
 
 class TrainingExample(object):
     def __init__(self, gf, blockstate, move, block_num, points_gained=None):
@@ -74,7 +66,14 @@ class TrainingExample(object):
         self.move = move
         self.block_num = block_num
         self.points_gained = points_gained
+        self.next_blockstate = None
 
     def __str__(self):
         return "TrainingExample(gf={0}, points={1}, move={2})".format(
                 self.gf, self.points_gained, self.move)
+
+    def mask(self):
+        return self.move.movemask
+
+    def score_estimates(self):
+        return self.move.movemask * self.points_gained
