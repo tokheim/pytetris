@@ -9,6 +9,7 @@ class FlatVision(object):
         self.game_eng = game_eng
         self.normalize_height = normalize_height
         self.flip_height = flip_height
+        self.depth_offset = 2
 
     def _init_state(self):
         channels = 2
@@ -28,7 +29,7 @@ class FlatVision(object):
                     width=self.game_eng.width,
                     x=mblock.x,
                     y=mblock.y)
-            block[0, :, 1] = _max_depths(mask, offset=2)
+            block[0, :, 1] = _max_depths(mask, offset=self.depth_offset)
             if self.flip_height:
                 block[0, :, 2] = _max_heights(mask)
         return block

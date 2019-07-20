@@ -1,6 +1,9 @@
 import png
 import random
 import numpy
+import logging
+
+log = logging.getLogger(__name__)
 
 class Colorgen(object):
     def __init__(self):
@@ -21,36 +24,44 @@ class Colorgen(object):
         return self._get_color(band)
 
     def colors(self, bands):
-        return [_get_color(self, i) for i in range(bands)]
+        return [self._get_color(i) for i in range(bands)]
 
+def block_state_drawer(filepath, max_files=100):
+    colorgen = Colorgen()
+    return BlockstateDrawer(filepath, colorgen, max_files)
 
 class BlockstateDrawer(object):
-    def __init__(self, filepath, colorgen):
+    def __init__(self, filepath, colorgen, max_files):
         self.filepath = filepath
         self.colorgen = colorgen
         self.file_num = 0
         self.pixel_size = 20
+        self.max_files = max_files
 
-    def save(self, *blockstates):
+    def draw(self, *blockstates):
         imgs = []
         for blockstate in blockstates:
             imgs.append(self.colorize(blockstate))
-        pixels = self.combine(imgs)
-        pixels = self.stretch(pixels)
+        imgs = self.pad_images(imgs)
+        img = self.combine(imgs)
+        img = self.stretch(img)
+        self.produce(img)
 
     def produce(self, img):
         pngimg = png.from_array(img.tolist(), mode='RGB')
-        fname = self.filepath+str(file_num)+'.png'
+        fname = self.filepath+str(self.file_num)+'.png'
         pngimg.save(fname)
+        log.info("created img "+fname)
+        self.file_num = (self.file_num + 1) % self.max_files
 
     def colorize(self, blockstate):
         h, w, channels = blockstate.shape
         colors = self.colorgen.colors(channels)
 
-        shaped = blockstate.respahe((h, w, channels, 1))
+        shaped = blockstate.reshape((h, w, channels, 1))
         colormat = [[colors]]
         colored = numpy.sum(shaped*colormat, 2)
-        maxcolors = numpy.max(colored, 2)
+        maxed = numpy.max(colored, 2)
         colored[maxed>255] = colored[maxed>255] / numpy.expand_dims(maxed[maxed>255], 1)
         return colored.astype(int)
 
@@ -66,7 +77,7 @@ class BlockstateDrawer(object):
     def pad_img(self, img, new_h, new_w):
         h, w, c = img.shape
         pads = [(0, new_h-h), (0, new_w-w), (0, 0)]
-        return img.pad(img, pads, 'constant', constant_values=(255,))
+        return numpy.pad(img, pads, 'constant', constant_values=(255,))
 
     def stretch(self, img):
         img = numpy.repeat(img, self.pixel_size, axis=0)

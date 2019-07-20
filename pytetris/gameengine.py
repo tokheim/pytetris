@@ -1,5 +1,5 @@
 import pygame
-from pytetris import block
+from pytetris import block, mover
 
 def create_game(width, height, blocksize=30, movetime=500, fps=40, name='PyTetris', include_screen=True):
     pygame.init()
@@ -12,6 +12,7 @@ def create_game(width, height, blocksize=30, movetime=500, fps=40, name='PyTetri
     bg = block.standard_generator(width, blocksize)
     staticblock = block.emptyblock(width, height, blocksize)
     ge = GameEngine(screen, staticblock, bg, movetime, fps)
+    mover.GameMover(ge).register()
     return ge
 
 class GameEngine(object):
@@ -33,6 +34,7 @@ class GameEngine(object):
         self.gameframe = 0
         self.ontick = ontick
         self.num_blocks = 0
+        self.input_handlers = []
 
     @property
     def width(self):
@@ -73,35 +75,9 @@ class GameEngine(object):
 
     def check_events(self):
         self.hold_tick += 1
-        for e in pygame.event.get():
-            if e.type == 2:#keydown
-                if e.key == pygame.K_p:
-                    self.pause = not self.pause
-                if self.pause:
-                    continue
-                if e.key == 276:#Left
-                    self.movex(-1)
-                    self.hold_dir = -1
-                    self.hold_tick = 0
-                elif e.key == 275:#right
-                    self.movex(1)
-                    self.hold_dir = 1
-                    self.hold_tick = 0
-                elif e.key == 274:#down
-                    self.rotate(1)
-                elif e.key == 273:#up
-                    self.rotate(-1)
-                elif e.key == 32:#space
-                    self.fast = True
-            elif e.type == 12:#exit button
-                self.stop()
-            elif e.type == 3:#keyup
-                if e.key == 32:#space
-                    self.fast = False
-                elif e.key in (275, 276) and not self.pause:
-                    self.hold_dir = 0
-        if self.check_hold_move() and not self.pause:
-            self.movex(self.hold_dir)
+        events = [e for e in pygame.event.get()]
+        for input_handler in self.input_handlers:
+            input_handler.handle_input(events)
 
     def stop(self):
         self.is_running=False

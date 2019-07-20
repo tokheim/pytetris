@@ -1,2 +1,5 @@
 pygame==1.9.2b8
 numpy>=1.13.1
+pypng==0.0.18
+tensorflow==1.4.1
+tensorflow-tensorboard==0.4.0rc3

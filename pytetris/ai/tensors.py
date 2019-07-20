@@ -16,11 +16,10 @@ def build_tensors(height, width, channels, move_size, bool_vision, model_name):
     th.est_board = tf.placeholder(tf.float32, shape=[None, height, width, channels])
 
     summarize(th.est_score, 'est_score')
-    build_board_prediction(th, height*width*channels, move_size, bool_vision)
-    build_score_prediction(th, height*width*channels, move_size, move_rand=1)
+    build_board_prediction(th, height, width, channels, move_size, bool_vision)
+    build_score_prediction(th, height*width*channels, move_size)
 
-    for op in th.tensor_ops:
-        op.summarize()
+    th.tensor_builder.summarize()
     with tf.name_scope('err'):
         tf.summary.scalar('error_board', th.error_board)
         tf.summary.scalar('error_score', th.error_score)
@@ -32,52 +31,75 @@ def build_tensors(height, width, channels, move_size, bool_vision, model_name):
     th.merged = tf.summary.merge_all()
     return th
 
-def build_board_prediction(th, board_dim, move_size, bool_vision):
-    fc_size = 600
-
-    th.tensor_ops.append(TensorOp(th.input_board, "input_board"))
-    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_1', op=tf.nn.relu))
-    th.tensor_ops.append(fc_op(th.tensor_ops[-1], fc_size, 'fc_2', op=tf.sigmoid))
-
-    #th.tensor_ops.append(dropout_op(th.tensor_ops[-1], th.input_dropout_keep))
-    #th.tensor_ops.append(residual_op(th.tensor_ops, 3))
-
+def build_board_prediction(th, h, w, c, move_size, bool_vision):
+    fc_size = 400
+    static_c = 1
+    dynamic_c = c - static_c
+    static_board_dim = h * w * static_c
+    dyn_board_dim = h * w * dynamic_c
+    board_dim = h * w * c
     last_op = tf.sigmoid
     if not bool_vision:
         last_op = tf.nn.relu
-    th.tensor_ops.append(fc_op(th.tensor_ops[-1], board_dim*move_size, None, op=last_op))
 
-    th.predict_board = tf.reshape(th.tensor_ops[-1].out_op, [-1, board_dim, move_size])
-    th.tensor_ops.append(TensorOp(th.predict_board, "predict_board"))
+    tb = TensorBuilder()
+    tb.ops.append(TensorOp(th.input_board, "input_board"))
+    tb.conv_op(5, 5, 30, 2, 2, "conv1")
+    tb.conv_op(5, 5, 60, 2, 2, "conv2")
+
+    tb.fc_op(static_board_dim, "static_predict_board", op=last_op)
+    static_board = tb.ops.pop()
+
+    tb.fc_op(fc_size, 'fc_1', op=tf.nn.relu)
+    tb.fc_op(dyn_board_dim*move_size, "predict_board", op=last_op)
+
+    static_reshaped = tf.reshape(static_board.out_op, [-1, h, w, static_c])
+    stacked = tf.stack([static_reshaped] * move_size, 1)
+    dynamic_reshaped = tf.reshape(tb.ops[-1].out_op, [-1, move_size, h, w, dynamic_c])
+    joined = tf.reshape(tf.concat([stacked, dynamic_reshaped], 4), [-1, move_size, board_dim])
+    th.predict_board = tf.matrix_transpose(joined)
+
+    tb.ops.append(static_board)
+    tb.ops.append(TensorOp(th.predict_board, "predict_board"))
 
     shaped_mask = tf.reshape(th.input_mask, [-1, move_size, 1])
+    th.predict_board_move = tf.matmul(th.predict_board, shaped_mask)
     masked_board = tf.reshape(tf.matmul(th.predict_board, shaped_mask), [-1, board_dim])
+    th.predict_board_move = tf.reshape(masked_board, [-1, h, w, c])
     real_board = tf.reshape(th.est_board, [-1, board_dim])
 
-    th.error_board = tf.reduce_mean(tf.square(tf.subtract(real_board, masked_board)))
-    th.train_board = tf.train.AdamOptimizer(1e-2, epsilon=1e-4).minimize(th.error_board)
+    norm = err_normalizer(board_dim, static_c, dynamic_c, move_size)
+    th.error_board = tf.reduce_mean(tf.square(tf.subtract(real_board, masked_board) * norm))
+    th.train_board = tf.train.AdamOptimizer(1e-1, epsilon=1e-3).minimize(th.error_board, var_list=tb.variables())
+    th.tensor_builder.merge(tb)
 
-def build_score_prediction(th, board_dim, move_size, move_rand):
+def err_normalizer(board_dim, static_c, dynamic_c, factor):
+    norm = numpy.ones((board_dim, ), dtype=float) / factor
+    for i in range(dynamic_c):
+        norm[static_c + i :: static_c + dynamic_c] = 1
+    return tf.constant(norm, dtype=tf.float32)
+
+def build_score_prediction(th, board_dim, move_size, old_state=False):
     fc_size = 50
-    current_state = tf.reshape(th.input_board, [-1, board_dim])
-    stacked = tf.stack([current_state]*move_size, 2)
-    concatenated = tf.concat([th.predict_board, stacked], 1)
+    tb = TensorBuilder()
+    if old_state:
+        current_state = tf.reshape(th.input_board, [-1, board_dim])
+        stacked = tf.stack([current_state]*move_size, 2)
+        concatenated = tf.concat([th.predict_board, stacked], 1)
+        tb.ops.append(TensorOp(tf.matrix_transpose(concatenated), "trans_predict"))
+    else:
+        tb.ops.append(TensorOp(tf.matrix_transpose(th.predict_board), "trans_predict"))
 
-    th.tensor_ops.append(TensorOp(tf.matrix_transpose(concatenated), "trans_predict"))
-    th.tensor_ops.append(band_fc_op(th.tensor_ops[-1], fc_size, "score_fc_1", op=tf.sigmoid))
+    tb.band_fc_op(fc_size, "score_fc_1", op=tf.sigmoid)
 
-    th.tensor_ops.append(band_fc_op(th.tensor_ops[-1], 1, "predict_score", op=tf.sigmoid))
-    predict_score = tf.reshape(th.tensor_ops[-1].out_op, [-1, move_size])
+    tb.band_fc_op(1, "predict_score", op=tf.sigmoid)
+    th.predictor_move = tf.reshape(tb.ops[-1].out_op, [-1, move_size])
 
-    masked_score = tf.multiply(predict_score, th.input_mask)
+    masked_score = tf.multiply(th.predictor_move, th.input_mask)
     th.error_score = tf.reduce_mean(tf.square(tf.subtract(masked_score, th.est_score)))
-    th.train_score = tf.train.AdamOptimizer(1e-2, epsilon=1e-4).minimize(th.error_score)
+    th.train_score = tf.train.AdamOptimizer(1e-2, epsilon=1e-4).minimize(th.error_score, var_list=tb.variables())
 
-    rand_decision = tf.random_uniform(shape=[], minval=0., maxval=1., dtype=tf.float32)
-    cond = tf.greater(rand_decision, move_rand)
-    rand_layer = tf.truncated_normal([move_size], stddev=0.1)
-
-    th.predictor_move = tf.cond(cond, lambda: predict_score, lambda: rand_layer)
+    th.tensor_builder.merge(tb)
 
 
 class TensorHolder(object):
@@ -90,8 +112,8 @@ class TensorHolder(object):
         self.train_board = None
         self.predictor_move = None
         self.input_dropout_keep = None
-        self.tensor_ops = []
         self.predict_board = None
+        self.predict_board_move = None
         self.train_score = None
         self.error_score = None
         self.error_board = None
@@ -101,6 +123,7 @@ class TensorHolder(object):
         self.saver = None
         self.init_op = None
         self.last_summary = None
+        self.tensor_builder = TensorBuilder()
 
     def start(self, session, restore):
         self.session = session
@@ -123,9 +146,20 @@ class TensorHolder(object):
             est_scores.append(tex.score_estimates())
             blockstates.append(tex.blockstate)
             est_blockstates.append(tex.next_blockstate)
-        data = self.feed_data(blockstates, input_masks, est_scores, est_blockstates, dropout_keep=dropout_keep)
+        data = self.feed_data(
+            blockstates,
+            input_masks,
+            est_scores,
+            est_blockstates,
+            dropout_keep=dropout_keep)
         ret = self.session.run([self.merged, self.train_score, self.train_board], feed_dict=data)
         self.last_summary = ret[0]
+
+    def gen_board_prediction(self, train_ex):
+	input_masks = [train_ex.mask()]
+        blockstates = [train_ex.blockstate]
+        data = self.feed_data(blockstates, input_masks)
+        return self.session.run(self.predict_board_move, feed_dict=data)[0]
 
     def summarize(self, n, **kwargs):
         if self.summary_writer is not None:
@@ -140,7 +174,8 @@ class TensorHolder(object):
         return summary_pb2.Summary(value=items)
 
 
-    def feed_data(self, blockstates, input_masks = None, est_scores = None, est_blockstates = None, dropout_keep=1):
+    def feed_data(self, blockstates, input_masks = None, est_scores = None,
+                  est_blockstates = None, dropout_keep=1):
         data = { self.input_board: blockstates, self.input_dropout_keep: dropout_keep }
         if input_masks is not None:
             data[self.input_mask] = input_masks
@@ -155,55 +190,80 @@ class TensorHolder(object):
         prediction = self.predictor_move.eval(feed_dict=data).flatten()
         return prediction
 
-def fc_op(last_op, neuron_size, name, op=None, bias=0.1):
-    in_tensor = last_op.out_op
-    in_size = last_op.out_dim[1]
-    if len(last_op.out_dim) > 2:
-        for n in last_op.out_dim[2:]:
-            in_size *= n
-        in_tensor = tf.reshape(in_tensor, [-1, in_size])
-    W_fc = weight_variable([in_size, neuron_size])
-    b_fc = bias_variable([neuron_size], bias)
-    h_fc = tf.matmul(in_tensor, W_fc) + b_fc
-    if op != None:
-        h_fc = op(h_fc)
-    summarizable = { 'W_fc': W_fc, 'b_fc': b_fc }
-    return TensorOp(h_fc, name, summarizable)
+class TensorBuilder(object):
+    def __init__(self):
+        self.ops = []
 
-def band_fc_op(last_op, neuron_size, name, op=None, bias=0.1):
-    in_tensor = last_op.out_op
-    in_neurons = last_op.out_dim[2]
-    W_fc = weight_variable([in_neurons, neuron_size])
-    b_fc = bias_variable([neuron_size], bias)
-    h_fc = tf.einsum('bij,jk->bik', in_tensor, W_fc) + b_fc
-    if op != None:
-        h_fc = op(h_fc)
-    summarizable = { 'W_fc': W_fc, 'b_fc': b_fc }
-    return TensorOp(h_fc, name, summarizable)
+    def merge(self, other):
+        self.ops.extend(other.ops)
 
-def dropout_op(last_op, input_dropout_keep):
-    in_tensor = last_op.out_op
-    out_op = tf.nn.dropout(in_tensor, input_dropout_keep)
-    return TensorOp(out_op, "dropout", {})
+    def summarize(self):
+        for op in self.ops:
+            op.summarize()
 
-def conv_op(last_op, conv_x, conv_y, features, pool_x, pool_y, name):
-    conv_shape = [conv_x, conv_y, last_op.out_dim[3], features]
-    W_conv = weight_variable(conv_shape)
-    b_conv = bias_variable([features])
-    h_conv = tf.nn.relu(conv2d(last_op.out_op, W_conv) + b_conv)
-    h_pool = pool(h_conv, [1, pool_x, pool_y, 1])
-    summarizable = { 'W_conv': W_conv, 'b_conv': b_conv }
-    return TensorOp(h_pool, name, summarizable)
+    def residual_op(self, delta):
+        op = tf.add(self.ops[-1].out_op, self.ops[-1-delta].out_op)
+        self.ops.append(TensorOp(op, None))
+        return self
 
-def residual_op(tensor_ops, delta):
-    op = tf.add(tensor_ops[-1].out_op, tensor_ops[-1-delta].out_op)
-    return TensorOp(op, None)
+    def dropout_op(self, dropout_keep):
+        in_tensor = self.ops[-1].out_op
+        out_op = tf.nn.dropout(in_tensor, dropout_keep)
+        self.ops.append(TensorOp(out_op, "dropout", {}))
+        return self
+
+    def fc_op(self, neuron_size, name, op=None, bias=0.1):
+        in_tensor = self.ops[-1].out_op
+        in_dim = self.ops[-1].out_dim
+        in_size = in_dim[1]
+        if len(in_dim) > 2:
+            for n in in_dim[2:]:
+                in_size *= n
+            in_tensor = tf.reshape(in_tensor, [-1, in_size])
+        W_fc = weight_variable([in_size, neuron_size])
+        b_fc = bias_variable([neuron_size], bias)
+        h_fc = tf.matmul(in_tensor, W_fc) + b_fc
+        if op != None:
+            h_fc = op(h_fc)
+        summarizable = { 'W_fc': W_fc, 'b_fc': b_fc }
+        self.ops.append(TensorOp(h_fc, name, summarizable, [W_fc, b_fc]))
+        return self
+
+    def band_fc_op(self, neuron_size, name, op=None, bias=0.1):
+        in_tensor = self.ops[-1].out_op
+        in_neurons = self.ops[-1].out_dim[2]
+        W_fc = weight_variable([in_neurons, neuron_size])
+        b_fc = bias_variable([neuron_size], bias)
+        h_fc = tf.einsum('bij,jk->bik', in_tensor, W_fc) + b_fc
+        if op != None:
+            h_fc = op(h_fc)
+        summarizable = { 'W_fc': W_fc, 'b_fc': b_fc }
+        self.ops.append(TensorOp(h_fc, name, summarizable, [W_fc, b_fc]))
+        return self
+
+    def conv_op(self, conv_x, conv_y, features, pool_x, pool_y, name):
+        last_op = self.ops[-1]
+        conv_shape = [conv_x, conv_y, last_op.out_dim[3], features]
+        W_conv = weight_variable(conv_shape)
+        b_conv = bias_variable([features])
+        h_conv = tf.nn.relu(conv2d(last_op.out_op, W_conv) + b_conv)
+        h_pool = pool(h_conv, [1, pool_x, pool_y, 1])
+        summarizable = { 'W_conv': W_conv, 'b_conv': b_conv }
+        self.ops.append(TensorOp(h_pool, name, summarizable, [W_conv, b_conv]))
+        return self
+
+    def variables(self):
+        variables = []
+        for op in self.ops:
+            variables.extend(op.variables)
+        return variables
 
 class TensorOp(object):
-    def __init__(self, out_op, name, summarizable=dict()):
+    def __init__(self, out_op, name, summarizable=dict(), variables=tuple()):
         self.name = name
         self.out_op = out_op
         self.summarizable = summarizable
+        self.variables = variables
 
     @property
     def out_dim(self):

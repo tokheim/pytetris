@@ -1,10 +1,11 @@
 import logging
 import numpy
+import random
 
 log = logging.getLogger(__name__)
 
 class GameSession(object):
-    def __init__(self, game_eng, tensor_holder, game_vision, score_handler, move_planner):
+    def __init__(self, game_eng, tensor_holder, game_vision, score_handler, move_planner, drawer, rand_level):
         self.game_eng = game_eng
         self.game_eng.ontick = self.ontick
         self.tensor_holder = tensor_holder
@@ -16,9 +17,20 @@ class GameSession(object):
         self.move_planner = move_planner
         self.move_plan = None
         self.max_blocks = 200
+        self.drawer = drawer
+        self.should_draw = False
+        self.should_dump_scores = False
+        self.last_blockstate = None
+        self.rand_level = rand_level
 
     def reset_game(self):
         self.total_score += self.game_eng.score
+        if self.should_draw:
+            self.draw()
+            self.should_draw = False
+        if self.should_dump_scores:
+            self.dump_scores()
+            self.should_dump_scores = False
         self.training_examples = []
         self.game_eng.clear()
         self.score_handler.clear()
@@ -32,15 +44,13 @@ class GameSession(object):
             self.game_eng.stop()
 
         if self.game_eng.current_block is None:
-            if self.training_examples:
-                self.training_examples[-1].next_blockstate = blockstate
+            if self.training_examples and self.training_examples[-1].next_blockstate is None:
+                self.training_examples[-1].next_blockstate = self.last_blockstate
             self.move_plan = None
             return
 
         if self.move_plan is None or self.move_plan.expended():
-            self.move_plan = self.move_planner.generate_plan(
-                    self.tensor_holder.predict(blockstate),
-                    self.game_eng)
+            self.move_plan = self.gen_plan(blockstate)
             train_ex = TrainingExample(
                     self.game_eng.gameframe,
                     blockstate,
@@ -48,6 +58,13 @@ class GameSession(object):
                     self.game_eng.num_blocks)
             self.training_examples.append(train_ex)
         self.move_plan.apply()
+        self.last_blockstate = blockstate
+
+    def gen_plan(self, blockstate):
+        move = self.tensor_holder.predict(blockstate)
+        if self.rand_level.get_level() > random.random():
+            move = numpy.random.rand(*move.shape)
+        return self.move_planner.generate_plan(move, self.game_eng)
 
     def tag_examples(self):
         gfs = [te.gf for te in self.training_examples]
@@ -58,6 +75,17 @@ class GameSession(object):
             if ps.next_blockstate is None:
                 ps.next_blockstate = ns.blockstate
         self.training_examples = self.training_examples[:-1]
+
+    def draw(self):
+        tex = random.choice(self.training_examples)
+        predict_state = self.tensor_holder.gen_board_prediction(tex)
+        self.drawer.draw(tex.blockstate, tex.next_blockstate, predict_state)
+
+    def dump_scores(self):
+        gfs = [te.gf for te in self.training_examples]
+        scores = self.score_handler.scores_at(gfs)
+        for te, score in zip(self.training_examples, scores):
+            print "gf {0} block {1} scorechange {2}".format(te.gf, te.block_num, score)
 
 class TrainingExample(object):
     def __init__(self, gf, blockstate, move, block_num, points_gained=None):

@@ -3,11 +3,12 @@ import random
 import math
 import tensorflow as tf
 from pytetris import gameengine
-from pytetris.ai import gameadapter, tensors, gamesession, move_planners, training_holder
+from pytetris.ai import gameadapter, tensors, gamesession, move_planners
+from pytetris.ai import training_holder, drawer, controls
 
 log = logging.getLogger(__name__)
 
-def setup(model_name, draw_every=100):
+def setup(model_name, draw_every, imagedir):
     screen = draw_every is not None
     ge = gameengine.create_game(10, 20, 30, movetime=10, fps=80, name=model_name, include_screen = screen)
     #game_vision = gameadapter.FlatVision(ge, normalize_height=False)
@@ -16,11 +17,11 @@ def setup(model_name, draw_every=100):
     scorer = gameadapter.MultiScorer(
             gameadapter.GameScoreScorer(),
             #gameadapter.LooseScorer(),
-            gameadapter.CompactnessScorer(1.0))
+            gameadapter.CompactnessScorer(0.2))
             #gameadapter.AvgHeightScorer(0.1, 1.5, 0))
             #gameadapter.RuinedRowScorer())
             #gameadapter.PotentialScorer())
-    score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.95, block_cooldown=0.3)
+    score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.98, block_cooldown=0.3)
     moveplanner = move_planners.MultiMover()
     #moveplanner = move_planners.MultiMoverFull()
     #moveplanner = move_planners.MultiEitherMover()
@@ -29,17 +30,22 @@ def setup(model_name, draw_every=100):
     #moveplanner = move_planners.AbsoluteMoverFull(-3, 13)
     h, w, c = game_vision.dim()
     th = tensors.build_tensors(h, w, c, moveplanner.predictor_size(), game_vision.bool_vision(), model_name)
-    game_sess = gamesession.GameSession(ge, th, game_vision, score_handler, moveplanner)
+    board_drawer = drawer.block_state_drawer(imagedir+model_name)
+    rand_level = controls.RandLevel()
+    game_sess = gamesession.GameSession(ge, th, game_vision, score_handler, moveplanner, board_drawer, rand_level)
     train_holder = training_holder.TrainingHolder(
             reinforce_ratio=0.4,
             num_quarantine=2000,
             num_reinforce=10000,
             batch_size=512,
             train_ratio=3.0)
-    return TrainRunner(model_name, ge, th, game_sess, train_holder, draw_every)
+    input_handler = controls.AiControls(game_sess, rand_level)
+    input_handler.register(ge)
+    return TrainRunner(model_name, ge, th, game_sess, train_holder, draw_every, input_handler)
 
 class TrainRunner(object):
-    def __init__(self, model_name, game_eng, tensor_holder, game_sess, train_holder, draw_every):
+    def __init__(self, model_name, game_eng, tensor_holder, game_sess, train_holder,
+                 draw_every, input_handler):
         self.model_name = model_name
         self.game_eng = game_eng
         self.tensor_holder = tensor_holder
@@ -50,6 +56,7 @@ class TrainRunner(object):
         self.train_holder = train_holder
         self.dropout_keep=1
         self.score_stats = ScoreStats()
+        self.input_handler = input_handler
 
     def run(self, restore_from=None):
         with tf.Session() as session:
@@ -66,6 +73,7 @@ class TrainRunner(object):
 
         self.add_examples()
         self.perform_training()
+        self.input_handler.handle_stdin()
         if self.game_sess.games % 100 == 0 and self.model_name != None:
             self.tensor_holder.save(self.model_name)
             self.summarize()
