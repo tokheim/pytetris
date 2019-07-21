@@ -9,8 +9,8 @@ def create_game(width, height, blocksize=30, movetime=500, fps=40, name='PyTetri
     if include_screen:
         screen = pygame.display.set_mode((width*blocksize, height*blocksize))
     font = pygame.font.Font(None, 16)
-    bg = block.standard_generator(width, blocksize)
-    staticblock = block.emptyblock(width, height, blocksize)
+    bg = block.standard_generator(width, blocksize, include_screen)
+    staticblock = block.emptyblock(width, height, blocksize, include_screen)
     ge = GameEngine(screen, staticblock, bg, movetime, fps)
     mover.GameMover(ge).register()
     return ge
