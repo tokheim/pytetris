@@ -28,6 +28,7 @@ class GameEngine(object):
         self.current_block = None
         self.fast = False
         self.pause = False
+        self.should_land = False
         self.score = 0
         self.hold_tick = 0
         self.hold_dir = 0
@@ -72,12 +73,18 @@ class GameEngine(object):
         self.gameframe = 0
         self.num_blocks = 0
         self.static_block.clear()
+        self.should_land = False
 
     def check_events(self):
+        if self.can_move():
+            return
         self.hold_tick += 1
         events = [e for e in pygame.event.get()]
         for input_handler in self.input_handlers:
             input_handler.handle_input(events)
+
+    def can_move(self):
+        return self.current_block is not None and not self.should_land
 
     def stop(self):
         self.is_running=False
@@ -109,6 +116,9 @@ class GameEngine(object):
         if self.current_block is None:
             self.create_block()
             self.num_blocks += 1
+        if self.should_land:
+            self.land_block()
+            return
         self.lastmove += dt
         movetime = self.movetime
         if self.fast:
@@ -140,6 +150,7 @@ class GameEngine(object):
     def land_block(self):
         self.current_block.freeze_into(self.static_block)
         self.current_block = None
+        self.should_land = False
         self.fast = False
         removeable_lines = self.static_block.filled_lines()
         self.score += len(removeable_lines)**2
@@ -149,5 +160,4 @@ class GameEngine(object):
         if self.current_block and self.check_move(dy=1):
             self.current_block.y += 1
         elif self.current_block:
-            self.land_block()
-
+            self.should_land = True#delay 1 frame for training end pos

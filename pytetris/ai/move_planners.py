@@ -45,7 +45,7 @@ class MultiMoverFull(object):
         return MultiMove(x, z, movemask, self.max_moves, gameengine)
 
 class MultiEitherMover(object):
-    def __init__(self, dx=(-4,-2,-1,0,1,2,4), dz=(-1,0,1,2), padding = 1):
+    def __init__(self, dx=(-2,-1,0,1,2), dz=(-1,0,1,2), padding = 1):
         self.dx = dx
         self.dz = dz
         self.padding = padding

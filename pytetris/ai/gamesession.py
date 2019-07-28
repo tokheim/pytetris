@@ -48,7 +48,8 @@ class GameSession(object):
                 self.training_examples[-1].next_blockstate = self.last_blockstate
             self.move_plan = None
             return
-
+        elif not self.game_eng.can_move():
+            return
         if self.move_plan is None or self.move_plan.expended():
             self.move_plan = self.gen_plan(blockstate)
             train_ex = TrainingExample(
@@ -85,7 +86,13 @@ class GameSession(object):
         gfs = [te.gf for te in self.training_examples]
         scores = self.score_handler.scores_at(gfs)
         for te, score in zip(self.training_examples, scores):
-            print "gf {0} block {1} scorechange {2}".format(te.gf, te.block_num, score)
+            t = self.tensor_holder.predict(te.blockstate)
+            print "gf {0} block {1} scorechange {2} ests {3}" \
+                    .format(te.gf, te.block_num, score, numpy.array2string(t, precision=3))
+        print "score_changes:"
+        for score in self.score_handler.score_changes:
+            print "gf {0} block {1} points {2} point_diff {3}" \
+                    .format(score.gf, score.block_num, score.points, score.point_diff)
 
 class TrainingExample(object):
     def __init__(self, gf, blockstate, move, block_num, points_gained=None):
