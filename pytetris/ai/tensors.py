@@ -47,13 +47,13 @@ def build_board_prediction(th, h, w, c, move_size):
     tb = TensorBuilder()
     #in_norm = th.input_board - tf.constant([1.]*static_c+[0.]*dynamic_c)
     tb.ops.append(TensorOp(th.input_board, "input_board"))
-    tb.conv_op(5, 5, 16, 1, 1, "conv1", op=tf.sigmoid)
-    tb.conv_op(5, 5, 8, 1, 1, "conv2", op=tf.sigmoid)
+    tb.conv_op(5, 5, 16, 1, 1, "conv1", op=tf.nn.relu)
+    tb.conv_op(5, 5, 8, 1, 1, "conv2", op=tf.nn.relu)
 
-    tb.conv_op(3, 3, static_c, 1, 1,  "static_predict_board", op=tf.sigmoid)
+    tb.conv_op(1, 1, static_c, 1, 1,  "static_predict_board", op=tf.sigmoid)
     static_board = tb.ops.pop()
 
-    tb.conv_op(5, 5, dynamic_c*move_size, 1, 1, "predict_board", op=tf.sigmoid)
+    tb.conv_op(3, 3, dynamic_c*move_size, 1, 1, "predict_board", op=tf.sigmoid)
     dyn_out = tf.transpose(tf.reshape(tb.ops[-1].out_op, [-1, h, w, move_size, dynamic_c]), [0, 3, 1, 2, 4])
     dyn_out = normalize_dyn_prediction(dyn_out, move_size, dyn_board_dim)
     th.stacked_board = tf.reshape(dyn_out, [-1, move_size, h, w, dynamic_c])
@@ -74,7 +74,7 @@ def build_board_prediction(th, h, w, c, move_size):
 
     norm = err_normalizer(board_dim, static_c, dynamic_c, factor=move_size*0.5)
     th.error_board = tf.reduce_mean(tf.square(tf.subtract(real_board, masked_board) * norm))
-    th.train_board = tf.train.AdamOptimizer(1e-2, epsilon=1e-3).minimize(th.error_board, var_list=tb.variables())
+    th.train_board = tf.train.AdamOptimizer(1e-1, epsilon=1e-3).minimize(th.error_board, var_list=tb.variables())
 
 
     th.board_tb = tb
