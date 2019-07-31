@@ -26,12 +26,16 @@ class AiControls(object):
 
     def handle_stdin(self):
         for c in self._char_yielder():
+            if c == 'D':
+                self.gamesession.requested_drawings += 4
             if c == 'd':
-                self.gamesession.should_draw=True
+                self.gamesession.requested_drawings += 1
             elif c == 's':
                 self.gamesession.should_dump_scores=True
             elif c == 'r':
                 self.rand_level.update_levels(1)
+            elif c == 'b':
+                import code; code.interact(local=vars())
 
     def _char_yielder(self):
         while select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):

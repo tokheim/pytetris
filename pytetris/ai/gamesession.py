@@ -18,16 +18,15 @@ class GameSession(object):
         self.move_plan = None
         self.max_blocks = 200
         self.drawer = drawer
-        self.should_draw = False
+        self.requested_drawings = 0
         self.should_dump_scores = False
         self.last_blockstate = None
         self.rand_level = rand_level
 
     def reset_game(self):
         self.total_score += self.game_eng.score
-        if self.should_draw:
+        if self.requested_drawings > 0:
             self.draw()
-            self.should_draw = False
         if self.should_dump_scores:
             self.dump_scores()
             self.should_dump_scores = False
@@ -78,9 +77,11 @@ class GameSession(object):
         self.training_examples = self.training_examples[:-1]
 
     def draw(self):
-        tex = random.choice(self.training_examples)
-        predict_state = self.tensor_holder.gen_board_prediction(tex)
-        self.drawer.draw(tex.blockstate, tex.next_blockstate, predict_state)
+        while self.requested_drawings > 0:
+            tex = random.choice(self.training_examples)
+            predict_state = self.tensor_holder.gen_board_prediction(tex)
+            self.drawer.draw(tex.blockstate, tex.next_blockstate, predict_state)
+            self.requested_drawings -= 1
 
     def dump_scores(self):
         gfs = [te.gf for te in self.training_examples]

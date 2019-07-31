@@ -62,7 +62,7 @@ class BlockstateDrawer(object):
         colormat = [[colors]]
         colored = numpy.sum(shaped*colormat, 2)
         maxed = numpy.max(colored, 2)
-        colored[maxed>255] = colored[maxed>255] / numpy.expand_dims(maxed[maxed>255], 1)
+        colored[maxed>255] = 255 * colored[maxed>255] / numpy.expand_dims(maxed[maxed>255], 1)
         return colored.astype(int)
 
     def combine(self, imgs):

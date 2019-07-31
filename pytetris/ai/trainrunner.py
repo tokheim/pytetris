@@ -15,10 +15,10 @@ def setup(model_name, draw_every, imagedir, train_board, train_score):
     game_vision = gameadapter.FullVision(ge)
     #game_vision = gameadapter.FlatRotatedVision(ge)
     scorer = gameadapter.MultiScorer(
-            gameadapter.GameScoreScorer())
+            gameadapter.GameScoreScorer(),
             #gameadapter.LooseScorer())
             #gameadapter.CompactnessScorer(0.2))
-            #gameadapter.AvgHeightScorer(0.1, 1.5, 0))
+            gameadapter.AvgHeightScorer(0.1, 1.5, 0))
             #gameadapter.RuinedRowScorer())
             #gameadapter.PotentialScorer())
     score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.98, block_cooldown=0.9)
@@ -29,7 +29,7 @@ def setup(model_name, draw_every, imagedir, train_board, train_score):
     #moveplanner = move_planners.AbsoluteMover(-3, 13)
     #moveplanner = move_planners.AbsoluteMoverFull(-3, 13)
     h, w, c = game_vision.dim()
-    th = tensors.build_tensors(h, w, c, moveplanner.predictor_size(), game_vision.bool_vision(), model_name, train_board, train_score)
+    th = tensors.build_tensors(h, w, c, moveplanner.predictor_size(), model_name, train_board, train_score)
     board_drawer = drawer.block_state_drawer(imagedir+model_name)
     rand_level = controls.RandLevel()
     game_sess = gamesession.GameSession(ge, th, game_vision, score_handler, moveplanner, board_drawer, rand_level)
@@ -37,17 +37,18 @@ def setup(model_name, draw_every, imagedir, train_board, train_score):
             reinforce_ratio=0.4,
             num_quarantine=2000,
             num_reinforce=10000,
-            batch_size=502,
+            #batch_size=480,
+            batch_size=512,
             train_ratio=3.0)
     score_train_holder = training_holder.TrainingHolder(
             reinforce_ratio=0.2,
             num_quarantine=0,
             num_reinforce=100,
-            batch_size=10,
+            batch_size=32,
             train_ratio=1.0)
     score_train_holder = training_holder.ConditionalTrainingHolder(
             score_train_holder, lambda x: x.points_gained > 0.2)
-    train_holder = training_holder.SkewedTrainingHolder([train_holder, score_train_holder])
+    #train_holder = training_holder.SkewedTrainingHolder([train_holder, score_train_holder])
 
     input_handler = controls.AiControls(game_sess, rand_level)
     input_handler.register(ge)

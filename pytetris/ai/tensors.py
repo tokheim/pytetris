@@ -7,7 +7,7 @@ import logging
 log = logging.getLogger(__name__)
 _MODEL_PATH = "models/{}/{}"
 
-def build_tensors(height, width, channels, move_size, bool_vision, model_name, train_board=True, train_score=False):
+def build_tensors(height, width, channels, move_size, model_name, train_board=True, train_score=False):
     th = TensorHolder()
     th.input_board = tf.placeholder(tf.float32, shape=[None, height, width, channels])
     th.input_mask = tf.placeholder(tf.float32, shape=[None, move_size])
@@ -17,7 +17,7 @@ def build_tensors(height, width, channels, move_size, bool_vision, model_name, t
     th.est_board = tf.placeholder(tf.float32, shape=[None, height, width, channels])
 
     summarize(th.est_score, 'est_score')
-    build_board_prediction(th, height, width, channels, move_size, bool_vision)
+    build_board_prediction(th, height, width, channels, move_size)
     #build_score_prediction(th, height*width*channels, move_size)
     build_cnn_score_prediction(th, height, width, move_size, channels)
 
@@ -36,44 +36,35 @@ def build_tensors(height, width, channels, move_size, bool_vision, model_name, t
         th.train_targets.append(th.train_score)
     return th
 
-def build_board_prediction(th, h, w, c, move_size, bool_vision):
-    fc_size = 400
+def build_board_prediction(th, h, w, c, move_size):
     static_c = 1
     dynamic_c = c - static_c
     static_board_dim = h * w * static_c
     dyn_board_dim = h * w * dynamic_c
     board_dim = h * w * c
     last_op = tf.sigmoid
-    if not bool_vision:
-        last_op = tf.nn.relu
 
     tb = TensorBuilder()
+    #in_norm = th.input_board - tf.constant([1.]*static_c+[0.]*dynamic_c)
     tb.ops.append(TensorOp(th.input_board, "input_board"))
-    print "input "+tb.dimstring()
-    #tb.conv_op(5, 5, 64, 2, 2, "conv1")
-    tb.conv_op(5, 5, 32, 1, 1, "conv1")
-    print "conv1 "+tb.dimstring()
-    #tb.conv_op(5, 5, 128, 2, 2, "conv2")
-    tb.conv_op(5, 5, 16, 1, 1, "conv2")
-    print "conv2 "+tb.dimstring()
+    tb.conv_op(5, 5, 16, 1, 1, "conv1", op=tf.sigmoid)
+    tb.conv_op(5, 5, 8, 1, 1, "conv2", op=tf.sigmoid)
 
-    tb.fc_op(static_board_dim, "static_predict_board", op=last_op)
+    tb.conv_op(3, 3, static_c, 1, 1,  "static_predict_board", op=tf.sigmoid)
     static_board = tb.ops.pop()
 
-    tb.fc_op(fc_size, 'fc_1', op=tf.nn.relu)
-    print "fc1 "+tb.dimstring()
-    tb.fc_op(dyn_board_dim*move_size, "predict_board", op=last_op)
+    tb.conv_op(5, 5, dynamic_c*move_size, 1, 1, "predict_board", op=tf.sigmoid)
+    dyn_out = tf.transpose(tf.reshape(tb.ops[-1].out_op, [-1, h, w, move_size, dynamic_c]), [0, 3, 1, 2, 4])
+    dyn_out = normalize_dyn_prediction(dyn_out, move_size, dyn_board_dim)
+    th.stacked_board = tf.reshape(dyn_out, [-1, move_size, h, w, dynamic_c])
 
     th.static_predict = tf.reshape(static_board.out_op, [-1, h, w, static_c])
     stacked = tf.stack([th.static_predict] * move_size, 1)
-    dynamic_reshaped = tf.reshape(tb.ops[-1].out_op, [-1, move_size, h, w, dynamic_c])
-    th.stacked_board = dynamic_reshaped
-    joined = tf.reshape(tf.concat([stacked, dynamic_reshaped], 4), [-1, move_size, board_dim])
+    joined = tf.reshape(tf.concat([stacked, th.stacked_board], 4), [-1, move_size, board_dim])
     th.predict_board = tf.matrix_transpose(joined)
 
     tb.ops.append(static_board)
     tb.ops.append(TensorOp(th.predict_board, "predict_board"))
-    print "predict "+tb.dimstring()
 
     shaped_mask = tf.reshape(th.input_mask, [-1, move_size, 1])
     th.predict_board_move = tf.matmul(th.predict_board, shaped_mask)
@@ -83,12 +74,17 @@ def build_board_prediction(th, h, w, c, move_size, bool_vision):
 
     norm = err_normalizer(board_dim, static_c, dynamic_c, factor=move_size*0.5)
     th.error_board = tf.reduce_mean(tf.square(tf.subtract(real_board, masked_board) * norm))
-    th.train_board = tf.train.AdamOptimizer(1e-1, epsilon=1e-3).minimize(th.error_board, var_list=tb.variables())
+    th.train_board = tf.train.AdamOptimizer(1e-2, epsilon=1e-3).minimize(th.error_board, var_list=tb.variables())
 
 
     th.board_tb = tb
     tb.summarize()
     th.board_saver = tf.train.Saver(tb.variables())
+
+def normalize_dyn_prediction(x, move_size, dyn_board_dim, blocks=4, error=1e-20):
+    shaped = tf.reshape(x, [-1, move_size, dyn_board_dim])
+    scale = tf.reduce_sum(shaped, 2, keep_dims=True)
+    return shaped * blocks / (scale + error)
 
 def err_normalizer(board_dim, static_c, dynamic_c, factor):
     norm = numpy.ones((board_dim, ), dtype=float) / factor
@@ -247,12 +243,7 @@ class TensorBuilder(object):
 
     def dimstring(self):
         op = self.ops[-1]
-        n = 1
-        for v in op.out_dim:
-          try:
-              n*=v
-          except TypeError:
-              pass
+        n = feature_size(op.out_op)
         return str(op.out_dim)+" - "+str(n)
 
     def merge(self, other):
@@ -302,12 +293,14 @@ class TensorBuilder(object):
         self.ops.append(TensorOp(h_fc, name, summarizable, [W_fc, b_fc]))
         return self
 
-    def conv_op(self, conv_x, conv_y, features, pool_x, pool_y, name):
+    def conv_op(self, conv_x, conv_y, features, pool_x, pool_y, name, op=tf.nn.relu):
         last_op = self.ops[-1]
         conv_shape = [conv_x, conv_y, last_op.out_dim[3], features]
         W_conv = weight_variable(conv_shape)
         b_conv = bias_variable([features])
-        h_conv = tf.nn.relu(conv2d(last_op.out_op, W_conv) + b_conv)
+        h_conv = conv2d(last_op.out_op, W_conv) + b_conv
+        if op is not None:
+            h_conv = op(h_conv)
         h_pool = h_conv
         if pool_x > 1 or pool_y > 1:
             h_pool = pool(h_conv, [1, pool_x, pool_y, 1])
@@ -364,17 +357,26 @@ class ReusableFC(TensorOp):
             h_fc = self.op(h_fc)
         return h_fc
 
+def feature_size(op):
+    n = 1
+    for v in op.shape.as_list():
+      try:
+        n*=v
+      except TypeError:
+        pass
+    return n
+
 def weight_variable(shape):
     initial = tf.truncated_normal(shape, stddev=0.1)
     return tf.Variable(initial)
 
-def bias_variable(shape, val=0.1):
+def bias_variable(shape, val=0.2):
     initial = tf.constant(val, shape=shape)
     return tf.Variable(initial)
 
 def pool(x, ksize):
     return tf.nn.max_pool(x, ksize=ksize,
-            strides=ksize, padding='SAME')
+            strides=[1]*len(ksize), padding='SAME')
 
 def conv2d(x, W, padding='SAME'):
     return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding=padding)
