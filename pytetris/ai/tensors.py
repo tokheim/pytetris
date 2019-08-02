@@ -3,6 +3,7 @@ from tensorflow.core.framework import summary_pb2
 import numpy
 import random
 import logging
+import math
 
 log = logging.getLogger(__name__)
 _MODEL_PATH = "models/{}/{}"
@@ -92,16 +93,22 @@ def err_normalizer(board_dim, static_c, dynamic_c, factor):
         norm[static_c + i :: static_c + dynamic_c] = 1
     return tf.constant(norm, dtype=tf.float32)
 
+def pool_size(v, kernels):
+    for kernel in kernels:
+        v = int(math.ceil(v/float(kernel)))
+    return v
+
 def build_cnn_score_prediction(th, h, w, move_size, c):
     static_c = 1
     dynamic_c = c-static_c
 
-    conv1_features=10
-    conv2_features=conv1_features/2
+    conv1_features=20
+    conv2_features=conv1_features
     tb = TensorBuilder()
     conv1 = ReusableConv(c, conv1_features, 5, "score_conv1")
     conv2 = ReusableConv(conv1_features, conv2_features, 5, "score_conv2")
-    fc_in = conv2_features * h * w
+
+    fc_in = conv2_features * pool_size(h, [2, 2]) * pool_size(w, [2, 2])
     fc1 = ReusableFC(fc_in, 1, "predict_score", op=None, bias=0.05)
     tb.ops += [conv1, conv2, fc1]
     results = []
@@ -109,7 +116,9 @@ def build_cnn_score_prediction(th, h, w, move_size, c):
         reshaped = tf.reshape(move_board, [-1, h, w, dynamic_c])
         full = tf.concat([reshaped, th.static_predict], 3)
         x = conv1.apply(full)
+        x = pool(x, [1, 2, 2, 1])
         x = conv2.apply(x)
+        x = pool(x, [1, 2, 2, 1])
         x = tf.reshape(x, [-1, fc_in])
         x = fc1.apply(x)
         results.append(x)
@@ -118,17 +127,6 @@ def build_cnn_score_prediction(th, h, w, move_size, c):
     tb.ops.append(TensorOp(th.predictor_move, "predictor_move"))
     finalize_score(th, tb)
 
-
-def build_score_prediction(th, board_dim, move_size):
-    fc_size = 50
-    tb = TensorBuilder()
-    tb.ops.append(TensorOp(tf.matrix_transpose(th.predict_board), "trans_predict"))
-
-    tb.band_fc_op(fc_size, "score_fc_1", op=tf.sigmoid)
-
-    tb.band_fc_op(1, "predict_score", op=None)
-    th.predictor_move = tf.reshape(tb.ops[-1].out_op, [-1, move_size])
-    finalize_score(th, tb)
 
 def finalize_score(th, tb):
 
@@ -376,7 +374,7 @@ def bias_variable(shape, val=0.2):
 
 def pool(x, ksize):
     return tf.nn.max_pool(x, ksize=ksize,
-            strides=[1]*len(ksize), padding='SAME')
+            strides=ksize, padding='SAME')
 
 def conv2d(x, W, padding='SAME'):
     return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding=padding)
