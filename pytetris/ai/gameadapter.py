@@ -208,6 +208,14 @@ class AvgHeightScorer(object):
         costs = numpy.power(heights, self.height_exp)
         return - numpy.average(costs)*self.height_penalty
 
+class CeilingScorer(object):
+    def __init__(self, penalty):
+        self.penalty = penalty
+
+    def score(self, game_eng):
+        mask = game_eng.static_block.mask
+        return -self.penalty * numpy.sum((mask[1:,:] > 0) & (mask[:-1,:] < 1))
+
 class CompactnessScorer(object):
     def __init__(self, factor):
         self.factor = factor

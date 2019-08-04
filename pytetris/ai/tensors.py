@@ -48,8 +48,8 @@ def build_board_prediction(th, h, w, c, move_size):
     tb = TensorBuilder()
     #in_norm = th.input_board - tf.constant([1.]*static_c+[0.]*dynamic_c)
     tb.ops.append(TensorOp(th.input_board, "input_board"))
-    tb.conv_op(5, 5, 16, 1, 1, "conv1", op=tf.nn.relu)
-    tb.conv_op(5, 5, 8, 1, 1, "conv2", op=tf.nn.relu)
+    tb.conv_op(5, 5, 64, 1, 1, "conv1", op=tf.nn.relu)
+    tb.conv_op(5, 5, 32, 1, 1, "conv2", op=tf.nn.relu)
 
     tb.conv_op(1, 1, static_c, 1, 1,  "static_predict_board", op=tf.sigmoid)
     static_board = tb.ops.pop()
@@ -102,13 +102,13 @@ def build_cnn_score_prediction(th, h, w, move_size, c):
     static_c = 1
     dynamic_c = c-static_c
 
-    conv1_features=20
-    conv2_features=conv1_features
+    conv_features=20
     tb = TensorBuilder()
-    conv1 = ReusableConv(c, conv1_features, 5, "score_conv1")
-    conv2 = ReusableConv(conv1_features, conv2_features, 5, "score_conv2")
+    conv1 = ReusableConv(c, conv_features, 5, "score_conv1")
+    conv2 = ReusableConv(conv_features, conv_features, 5, "score_conv2")
+    #conv3 = ReusableConv(conv_features, conv_features, 3, "score_conv3")
 
-    fc_in = conv2_features * pool_size(h, [2, 2]) * pool_size(w, [2, 2])
+    fc_in = conv_features * pool_size(h, [2, 2]) * pool_size(w, [2, 2])
     fc1 = ReusableFC(fc_in, 1, "predict_score", op=None, bias=0.05)
     tb.ops += [conv1, conv2, fc1]
     results = []
@@ -119,6 +119,8 @@ def build_cnn_score_prediction(th, h, w, move_size, c):
         x = pool(x, [1, 2, 2, 1])
         x = conv2.apply(x)
         x = pool(x, [1, 2, 2, 1])
+        #x = conv3.apply(x)
+        #x = pool(x, [1, 3, 3, 1])
         x = tf.reshape(x, [-1, fc_in])
         x = fc1.apply(x)
         results.append(x)

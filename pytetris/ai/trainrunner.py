@@ -16,12 +16,13 @@ def setup(model_name, draw_every, imagedir, train_board, train_score):
     #game_vision = gameadapter.FlatRotatedVision(ge)
     scorer = gameadapter.MultiScorer(
             gameadapter.GameScoreScorer(),
-            #gameadapter.LooseScorer())
+            gameadapter.LooseScorer(2),
             #gameadapter.CompactnessScorer(0.2))
             gameadapter.AvgHeightScorer(0.1, 1.5, 0))
-            #gameadapter.RuinedRowScorer())
+            #gameadapter.CeilingScorer(0.1))
             #gameadapter.PotentialScorer())
-    score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.98, block_cooldown=0.9)
+    #score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.98, block_cooldown=0.9)
+    score_handler = gameadapter.ScoreHandler(ge, scorer, cooldown=0.99, block_cooldown=0.95)
     #moveplanner = move_planners.MultiMover(dx=(-2,1,0,1,2), max_moves=5)
     #moveplanner = move_planners.MultiMoverFull()
     moveplanner = move_planners.MultiEitherMover()
