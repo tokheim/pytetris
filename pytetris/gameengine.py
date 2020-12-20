@@ -55,32 +55,32 @@ class GameEngine(object):
     def check_events(self):
         self.hold_tick += 1
         for e in pygame.event.get():
-            if e.type == 2:#keydown
+            if e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_p:
                     self.pause = not self.pause
                 if self.pause:
                     continue
-                if e.key == 276:#Left
+                if e.key == pygame.K_LEFT:
                     self.movex(-1)
                     self.hold_dir = -1
                     self.hold_tick = 0
-                elif e.key == 275:#right
+                elif e.key == pygame.K_RIGHT:
                     self.movex(1)
                     self.hold_dir = 1
                     self.hold_tick = 0
-                elif e.key == 274:#down
-                    self.rotate(1)
-                elif e.key == 273:#up
+                elif e.key == pygame.K_DOWN:
                     self.rotate(-1)
-                elif e.key == 32:#space
+                elif e.key == pygame.K_UP:
+                    self.rotate(1)
+                elif e.key == pygame.K_SPACE:
                     self.fast = True
-            elif e.type == 12:#exit button
+            elif e.type == pygame.QUIT:
                 self.is_running = False
                 self.quit=True
-            elif e.type == 3:#keyup
-                if e.key == 32:#space
+            elif e.type == pygame.KEYUP:
+                if e.key == pygame.K_SPACE:
                     self.fast = False
-                elif e.key in (275, 276) and not self.pause:
+                elif e.key in (pygame.K_RIGHT, pygame.K_LEFT) and not self.pause:
                     self.hold_dir = 0
         if self.check_hold_move() and not self.pause:
             self.movex(self.hold_dir)

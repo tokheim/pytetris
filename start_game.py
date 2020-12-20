@@ -11,5 +11,5 @@ args = parser.parse_args()
 
 ge = gameengine.create_game(args.width, args.height, args.blocksize, movetime=500)
 ge.rungame()
-print "Score: "+str(ge.score)
+print("Score: "+str(ge.score))
 ge.clear()
