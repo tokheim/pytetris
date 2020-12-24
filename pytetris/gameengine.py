@@ -1,15 +1,15 @@
 import pygame
 from pytetris import block
 
-def create_game(width, height, blocksize=30, movetime=500):
-    pygame.init()
-    pygame.display.set_caption('PyTetris')
-
-    screen = pygame.display.set_mode((width*blocksize, height*blocksize))
-    font = pygame.font.Font(None, 16)
-    bg = block.standard_generator(width, blocksize)
-    staticblock = block.emptyblock(width, height, blocksize)
-    ge = GameEngine(screen, staticblock, bg, movetime)
+def create_game(width, height, blocksize=30, movetime=500, fps=40, include_screen=True):
+    screen = None
+    if include_screen:
+        pygame.init()
+        pygame.display.set_caption('PyTetris')
+        screen = pygame.display.set_mode((width*blocksize, height*blocksize))
+    bg = block.standard_generator(width, blocksize, include_screen)
+    staticblock = block.emptyblock(width, height, blocksize, include_screen)
+    ge = GameEngine(screen, staticblock, bg, movetime, fps)
     return ge
 
 class GameEngine(object):
@@ -31,11 +31,11 @@ class GameEngine(object):
 
     @property
     def width(self):
-        return self.static_block.mask.get_size()[0]
+        return self.static_block.mask.shape[1]
 
     @property
     def height(self):
-        return self.static_block.mask.get_size()[1]
+        return self.static_block.mask.shape[0]
 
     def rungame(self):
         self.is_running = True
@@ -46,10 +46,11 @@ class GameEngine(object):
             self.draw()
         return self.score
 
-    def clear(self):
+    def reset(self):
         self.current_block = None
         self.hold_dir = 0
         self.score = 0
+        self.is_running = True
         self.static_block.clear()
 
     def check_events(self):
@@ -89,12 +90,13 @@ class GameEngine(object):
         return self.hold_dir != 0 and self.hold_tick > 8 and self.hold_tick % 2 == 0
 
     def draw(self):
-        self.screen.fill((0,0,0))
-        self.static_block.draw(self.screen)
-        if self.current_block:
-            self.current_block.draw(self.screen)
-        self.draw_score(self.screen)
-        pygame.display.flip()
+        if self.screen is not None:
+            self.screen.fill((0,0,0))
+            self.static_block.draw(self.screen)
+            if self.current_block:
+                self.current_block.draw(self.screen)
+            self.draw_score(self.screen)
+            pygame.display.flip()
 
     def draw_score(self, surface):
         font = pygame.font.Font(None, 36)
@@ -148,3 +150,8 @@ class GameEngine(object):
             self.current_block.y += 1
         elif self.current_block:
             self.land_block()
+
+    def close(self):
+        if self.screen:
+            pygame.display.quit()
+        pygame.quit()

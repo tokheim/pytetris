@@ -79,17 +79,18 @@ def draw_block(surf, x, y, blocksize, color, bcolor):
     r.inflate_ip(-blocksize*0.2, -blocksize*0.2)
     pygame.draw.rect(surf, color, r)
 
-def emptyblock(w, h, blocksize):
+def emptyblock(w, h, blocksize, has_screen):
     mask = numpy.zeros((h, w), numpy.dtype(bool))
     surf = pygame.surface.Surface((w*blocksize, h*blocksize),
             pygame.SRCALPHA, depth=32)
-    return StaticBlockGroup(mask, surf, blocksize)
+    return StaticBlockGroup(mask, surf, blocksize, has_screen)
 
 class StaticBlockGroup(object):
-    def __init__(self, mask, surf, blocksize):
+    def __init__(self, mask, surf, blocksize, has_screen):
         self.mask = mask
         self.surf = surf
         self.blocksize = blocksize
+        self.has_screen = has_screen
 
     @property
     def width(self):
@@ -98,15 +99,19 @@ class StaticBlockGroup(object):
     def height(self):
         return self.mask.shape[0]
 
-    def merge(self, other, x, y):
+    def merge_masks(self, other, x, y):
         for dx in range(other.width):
             for dy in range(other.height):
                 v = other.mask[dy, dx]
                 if 0 <= x+dx < self.width and 0 <= y+dy < self.height and v:
                     self.mask[y+dy, x+dx] = v
+
+    def merge(self, other, x, y):
+        self.merge_masks(other, x, y)
         bs = self.blocksize
         self.surf.blit(other.surf, (x*bs, y*bs))
-        self.surf = self.surf.convert()
+        if self.has_screen:
+            self.surf = self.surf.convert()
 
     def filled_lines(self):
         lines = []
@@ -148,8 +153,8 @@ class StaticBlockGroup(object):
     def draw(self, surface):
         surface.blit(self.surf, (0, 0))
 
-    def mask_in_shape(self, width, height, x=0, y=0):
-        m = numpy.zeros((height, width), numpy.dtype(bool))
+    def mask_in_shape(self, width, height, x=0, y=0, dtype = numpy.dtype(bool)):
+        m = numpy.zeros((height, width), dtype)
         minx = max(0, -1*x)
         miny = max(0, -1*y)
         maxx = min(width, x+self.mask.shape[1])-x
@@ -194,9 +199,10 @@ class MoveableBlockGroup(object):
                 or block.outside(other, self.x+dx, self.y+dy))
 
 class BlockCreator(object):
-    def __init__(self, mask, color):
+    def __init__(self, mask, color, has_screen):
         self.mask = mask
         self.color = color
+        self.has_screen = has_screen
 
     @property
     def miny(self):
@@ -208,7 +214,7 @@ class BlockCreator(object):
         cx, cy = centroid(self.mask)
         for _ in range(4):
             surf = make_surf(lastmask, self.color, blocksize)
-            g = StaticBlockGroup(lastmask, surf, blocksize)
+            g = StaticBlockGroup(lastmask, surf, blocksize, self.has_screen)
             lastmask = rotate(lastmask)
             lastmask = shift_centroid(lastmask, cx, cy)
             groups.append(g)
@@ -238,17 +244,17 @@ def colorgenerator(minv=100):
         b = rand.randrange(minv, 255)
         yield pygame.color.Color(r,g,b)
 
-def standard_generator(width, blocksize):
+def standard_generator(width, blocksize, has_screen):
     blockcreators = []
     bdefs = [LBlockCoords, ZBlockCoords, OBlockCoords,
             IBlockCoords, DBlockCoords]
     colorit = colorgenerator()
     for bcoords in bdefs:
         mask = to_mask(bcoords)
-        blockcreators.append(BlockCreator(mask, next(colorit)))
+        blockcreators.append(BlockCreator(mask, next(colorit), has_screen))
         if not flip_symmetric(mask):
             mask = flip(mask)
-            blockcreators.append(BlockCreator(mask, next(colorit)))
+            blockcreators.append(BlockCreator(mask, next(colorit), has_screen))
     return BlockGenerator(width, blocksize, blockcreators)
 
 class BlockGenerator(object):
