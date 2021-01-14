@@ -1,7 +1,7 @@
 from pytetris import tetrisgym
 import gym
 
-env = gym.make("Pytetris-v0")
+env = gym.make("Pytetris-v2")
 
 def run(env):
     done = False

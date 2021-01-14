@@ -5,11 +5,15 @@ from pytetris import gameengine
 from pytetris.tetrisgym import gameadapter
 
 class TetrisGymEnv(gym.Env):
-    def __init__(self):
-        self.game_eng = gameengine.create_game(10, 20, 30, movetime=0, fps=100, include_screen=False)
+    def __init__(self, renderable=False, heightscore=False, holescorer=False):
+        self.game_eng = gameengine.create_game(10, 20, 30, movetime=0, fps=100, include_screen=renderable)
         self.game_vision = gameadapter.LayerColoredVision(self.game_eng)
-        self.score_handler = gameadapter.MultiScorer(
-                gameadapter.GameScoreScorer())
+        scorers = [gameadapter.GameScoreScorer()]
+        if heightscore:
+            scorers.append(gameadapter.AvgHeightScorer())
+        if holescorer:
+            scorers.append(gameadapter.HoleScorer())
+        self.score_handler = gameadapter.MultiScorer(*scorers)
         self.max_blocks = 200
         self.action_space = discrete.Discrete(5)
         self.observation_space = box.Box(0, 255, self.game_vision.dim(), dtype=self.game_vision.dtype)

@@ -60,7 +60,7 @@ class GameScoreScorer(object):
         return game_eng.score
 
 class AvgHeightScorer(object):
-    def __init__(self, height_penalty, height_exp, min_height=0):
+    def __init__(self, height_penalty=0.1, height_exp=1.2, min_height=4):
         self.height_penalty = height_penalty
         self.height_exp = height_exp
         self.min_height = min_height
@@ -79,8 +79,18 @@ class CeilingScorer(object):
         mask = game_eng.static_block.mask
         return -self.penalty * numpy.sum((mask[1:,:] > 0) & (mask[:-1,:] < 1))
 
+class HoleScorer(object):
+    def __init__(self, penalty=0.05):
+        self.penalty = penalty
+
+    def score(self, game_eng):
+        mask = game_eng.static_block.mask
+        area = numpy.sum(_max_heights(mask))
+        filled = numpy.sum(mask)
+        return - self.penalty * (area - filled)
+
 class CompactnessScorer(object):
-    def __init__(self, factor):
+    def __init__(self, factor=0.1):
         self.factor = factor
 
     def score(self, game_eng):
